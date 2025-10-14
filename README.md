@@ -28,7 +28,7 @@ beautifully designed notes.
 - **🌙 Dark Theme**: A pleasing display at any time of day.
 - **☁️ Sync** (planned): Sync your notes across devices.
 
-## 📸 Скриншоты
+## 📸 Screenshots
 
 |                   Main Screen                   |                 Creating a note                 |                      Menu                       |
 |:-----------------------------------------------:|:-----------------------------------------------:|:-----------------------------------------------:|
