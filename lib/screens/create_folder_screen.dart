@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:note_app/hive_models/save_folder.dart';
 import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/shared_preferences.dart/theme_provider.dart';
+import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class CreateFolderScreen extends StatefulWidget {
@@ -199,7 +199,12 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                   if (title.isEmpty) {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: const Text('Введите назание папки!')),
+                      SnackBar(
+                        content: const Text(
+                          'Введите назание папки!',
+                          style: TextStyle(fontFamily: 'Oswald'),
+                        ),
+                      ),
                     );
                     return;
                   }

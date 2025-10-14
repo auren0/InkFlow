@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:note_app/hive_models/save_note.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:note_app/shared_preferences.dart/theme_provider.dart';
+import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:note_app/widgets/audio_player_widget.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -303,6 +303,17 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                 color: Colors.black,
               ),
               onPressed: () async {
+                if (Platform.isWindows) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text(
+                        'Аудиозаметки не поддерживаются на виндовс',
+                        style: TextStyle(fontFamily: 'Oswald'),
+                      ),
+                    ),
+                  );
+                  return;
+                }
                 if (_isRecording) {
                   await _stopRecording();
                 } else {

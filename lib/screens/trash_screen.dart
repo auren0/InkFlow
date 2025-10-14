@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/shared_preferences.dart/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class TrashScreen extends StatelessWidget {

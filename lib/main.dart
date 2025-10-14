@@ -9,7 +9,7 @@ import 'package:note_app/screens/home_screen.dart';
 import 'package:note_app/screens/settings_screen.dart';
 import 'package:note_app/screens/trash_screen.dart';
 import 'package:note_app/services/hive_service.dart';
-import 'package:note_app/shared_preferences.dart/theme_provider.dart';
+import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window;
 import 'package:flutter/foundation.dart' show kIsWeb;

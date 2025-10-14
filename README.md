@@ -1,6 +1,7 @@
 # 🎨 InkFlow
 
-**InkFlow** — элегантное и интуитивно понятное приложение для заметок, созданное с помощью Flutter. Превратите ваши мысли в красиво оформленные заметки с лёгкостью.
+**InkFlow** is an elegant and intuitive note-taking app built with Flutter. Easily transform your thoughts into
+beautifully designed notes.
 
 <p align="center">
   <img src="/assets/icons/app_icon.png" alt="InkFlow Banner" width="150"/>
@@ -20,79 +21,82 @@
 
 ---
 
-## ✨ Возможности
+## ✨ Possibilities
 
-- **🎨 Персонализация**: Изменяйте фон заметок, выбирайте из палитры красивых цветов.
-- **📂 Умная организация**: Сортируйте и организуйте заметки по категориям и тегам.
-- **🌙 Тёмная тема**: Приятное для глаз отображение в любое время суток.
-- **☁️ Синхронизация** (в планах): Синхронизация ваших заметок между устройствами.
+- **🎨 Personalization**: Change the background of your notes, choose from a palette of beautiful colors.
+- **📂 Smart organization**: Sort and organize notes by categories and tags.
+- **🌙 Dark Theme**: A pleasing display at any time of day.
+- **☁️ Sync** (planned): Sync your notes across devices.
 
 ## 📸 Скриншоты
 
-| Главный экран | Создание заметки | Тёмная тема |
-| :-----------: | :--------------: | :--------: |
+|                   Main Screen                   |                 Creating a note                 |                      Menu                       |
+|:-----------------------------------------------:|:-----------------------------------------------:|:-----------------------------------------------:|
 | <img src="/assets/images/img1.png" width="250"> | <img src="/assets/images/img2.png" width="250"> | <img src="/assets/images/img3.png" width="250"> |
 
-## 🚀 Начало работы
+## 🚀 Getting Started
 
-### Предварительные требования
+### Prerequisites
 
-Убедитесь, что на вашей машине установлены:
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (последняя стабильная версия)
-- Любая IDE с поддержкой Flutter (VS Code, Android Studio)
+Make sure you have the following installed on your machine:
+
+- [Flutter SDK](https://flutter.dev/docs/get-started/install) (latest stable version)
+- Any IDE with Flutter support (VS Code, Android Studio)
 - Git
 
-### Установка
+### Installation
 
-1. **Клонируйте репозиторий**
+1. **Clone repository**
    ```bash
    git clone https://github.com/VoidCorew/inkflow.git
    cd inkflow
    ```
 
-2. **Получаете зависимости**
+2. **Get dependencies**
    ```bash
    flutter pub get
    ```
 
-3. **Запустите приложение**
+3. **Run the app**
     ```bash
     flutter run
     ```
 
-### Сборка
+### Build
 
-- **Для Android**
-   
+- **For Android**
+
    ```bash
    flutter build apk
    ```
-- **Для IOS**
-   
+- **For IOS**
+
    ```bash
    flutter build ios
    ```
 
-## 🤝 Как можно поучавствовать
+## 🤝 How to get involved
 
-Мы рады вкладу сообщества! Чтобы помочь улучшить InkFlow:
+We welcome community contributions! To help improve InkFlow:
 
-1. Форкните проект
+1. Fork the project
 
-2. Создайте ветку для функции (git checkout -b feature/AmazingFeature)
+2. Create a branch for the feature (git checkout -b feature/AmazingFeature)
 
-3. Закоммитьте изменения (git commit -m 'Add some AmazingFeature')
+3. Commit the changes (git commit -m 'Add some AmazingFeature')
 
-4. Запушьте в ветку (git push origin feature/AmazingFeature)
+4. Push to the branch (git push origin feature/AmazingFeature)
 
-5. Откройте Pull Request
+5. Open a Pull Request
 
-Пожалуйста, убедитесь, что ваш код соответствует нашим стандартам и проходит все тесты.
+Please ensure your code meets our standards and passes all tests.
 
-## 📜 Лицензия
-Этот проект распространяется под лицензией MIT.
+## 📜 License
 
-## 📞 Контакты и поддержка
+This project is licensed under the MIT License.
+
+## 📞 Contact and Support
+
 - Email: amcxz6092@gmail.com
 - Telegram: @cxzerr
 

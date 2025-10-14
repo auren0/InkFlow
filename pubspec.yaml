@@ -48,6 +48,7 @@ dependencies:
   shared_preferences: ^2.5.3
   record: ^6.1.1
   audioplayers: ^6.5.0
+  audioplayers_windows: ^4.2.1
 
 dev_dependencies:
   flutter_test:
