@@ -69,7 +69,7 @@ Make sure you have the following installed on your machine:
    ```bash
    flutter build apk
    ```
-- **For IOS**
+- **For iOS**
 
    ```bash
    flutter build ios

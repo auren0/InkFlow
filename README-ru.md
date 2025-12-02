@@ -69,7 +69,7 @@
    ```bash
    flutter build apk
    ```
-- **Для IOS**
+- **Для iOS**
 
    ```bash
    flutter build ios

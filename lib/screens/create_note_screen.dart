@@ -38,6 +38,8 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   List<String> _audioPaths = [];
   List<String> _audioTitles = [];
 
+  bool _hasChanges = false;
+
   @override
   void initState() {
     super.initState();
@@ -59,7 +61,46 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           widget.note!.audioTitles?.toList() ??
           List.filled(widget.note!.audioNotes?.length ?? 0, 'Аудио заметка');
     }
+
+    _titleController.addListener(_checkForChanges);
+    _contentController.addListener(_checkForChanges);
   }
+
+  @override
+  void dispose() {
+    _titleController.removeListener(_checkForChanges);
+    _contentController.removeListener(_checkForChanges);
+    super.dispose();
+  }
+
+  void _checkForChanges() {
+    if (widget.note == null) {
+      setState(() {
+        _hasChanges =
+            _titleController.text.isNotEmpty ||
+            _contentController.text.isNotEmpty;
+      });
+    } else {
+      setState(() {
+        _hasChanges =
+            _titleController.text != widget.note!.title ||
+            _contentController.text != widget.note!.content ||
+            _selectedImage?.path != widget.note!.backgroundImagePath ||
+            _backgroundColor.toARGB32() !=
+                (widget.note!.backgroundColorValue ??
+                    Colors.yellow.toARGB32()) ||
+            _textColor.toARGB32() !=
+                (widget.note!.textColorValue ?? Colors.black.toARGB32()) ||
+            _audioPaths.length != (widget.note!.audioNotes?.length ?? 0);
+      });
+    }
+  }
+
+  // void _markAsChanged() {
+  //   setState(() {
+  //     _hasChanges = true;
+  //   });
+  // }
 
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
@@ -122,14 +163,318 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     }
   }
 
+  Future<bool> _showUnsavedChangesDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        title: const Text(
+          'Выберите вариант',
+          style: TextStyle(fontFamily: 'Oswald'),
+        ),
+        actions: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16.0,
+                      horizontal: 25.0,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    side: BorderSide(color: Colors.green, width: 2),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: Text(
+                    "Отмена",
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontFamily: 'Oswald',
+                      fontSize: 18,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16.0,
+                      horizontal: 25.0,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    backgroundColor: Colors.brown,
+                  ),
+                  onPressed: () {
+                    widget.noteProvider.addToArchive(widget.note);
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          'Заметка перемещена в архив',
+                          style: TextStyle(fontFamily: 'Oswald'),
+                        ),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    "Архивировать",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontFamily: 'Oswald',
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16.0,
+                      horizontal: 25.0,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    backgroundColor: Colors.yellow,
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    showModalBottomSheet(
+                      context: context,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(16),
+                        ),
+                      ),
+                      builder: (context) => Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: Container(
+                              width: 40,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.grey[400],
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Flexible(
+                            child: SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.5,
+                              child: ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: folders.length,
+                                itemBuilder: (context, index) {
+                                  final folder = folders[index];
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16.0,
+                                    ),
+                                    child: ListTile(
+                                      leading: Container(
+                                        width: 24,
+                                        height: 24,
+                                        decoration: BoxDecoration(
+                                          color: Color(folder.colorValue),
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 2,
+                                          ),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      title: Text(
+                                        folder.title,
+                                        style: TextStyle(fontFamily: 'Oswald'),
+                                      ),
+                                      onTap: () {
+                                        noteProvider.addNoteToFolder(
+                                          widget.note,
+                                          folder,
+                                        );
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Заметка перемещена в папку ${folder.title}',
+                                              style: TextStyle(
+                                                fontFamily: 'Oswald',
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  child: Text(
+                    "Добавить в папку",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontFamily: 'Oswald',
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 5),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 16.0,
+                      horizontal: 25.0,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    backgroundColor: Colors.red,
+                  ),
+                  onPressed: () {
+                    widget.noteProvider.moveNoteToTrash(widget.note);
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Text(
+                          'Заметка перемещена в корзину',
+                          style: TextStyle(fontFamily: 'Oswald'),
+                        ),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    "Удалить",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontFamily: 'Oswald',
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    // final result = await showDialog<bool>(
+    //   context: context,
+    //   barrierDismissible: false,
+    //   builder: (BuildContext context) {
+    //     return AlertDialog(
+    //       title: const Text(
+    //         'Заметка была изменена',
+    //         style: TextStyle(fontFamily: 'Oswald'),
+    //       ),
+    //       content: const Text(
+    //         'Выберите опцию:',
+    //         style: TextStyle(fontFamily: 'Oswald'),
+    //       ),
+    //       actions: <Widget>[
+    //         TextButton(
+    //           child: const Text(
+    //             'Не сохранять',
+    //             style: TextStyle(
+    //               fontFamily: 'Oswald',
+    //               color: Colors.red,
+    //             ),
+    //           ),
+    //           onPressed: () {
+    //             // Navigator.of(context).pop();
+    //             Navigator.of(context).pop();
+    //           },
+    //         ),
+    //         TextButton(
+    //           child: const Text(
+    //             'Сохранить',
+    //             style: TextStyle(
+    //               fontFamily: 'Oswald',
+    //               color: Colors.green,
+    //             ),
+    //           ),
+    //           onPressed: () {
+    //             Navigator.of(context).pop(false);
+    //             _saveNoteAndPop();
+    //           },
+    //         ),
+    //         TextButton(
+    //           child: const Text(
+    //             'Отмена',
+    //             style: TextStyle(
+    //               fontFamily: 'Oswald',
+    //               color: Colors.grey,
+    //             ),
+    //           ),
+    //           onPressed: () {
+    //             Navigator.of(context).pop(null);
+    //           },
+    //         ),
+    //       ],
+    //     );
+    //   },
+    // );
+
+    return result ?? false;
+  }
+
+  void _saveNoteAndPop() {
+    _saveNote();
+  }
+
+  Future<void> _onWillPop() async {
+    if (_hasChanges) {
+      final shouldExit = await _showUnsavedChangesDialog();
+      if (shouldExit == true) {
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      } else if (shouldExit == false) {
+        _saveNoteAndPop();
+      }
+    } else {
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          onPressed: () {
-            Navigator.pop(context);
-          },
+          onPressed: _onWillPop,
           icon: Icon(FluentIcons.edit_arrow_back_24_regular),
         ),
         actions: [
@@ -228,35 +573,36 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final note = SaveNote(
-            title: _titleController.text,
-            content: _contentController.text,
-            folderId: widget.folderId,
-            backgroundImagePath: _selectedImage?.path,
-            textColorValue: _textColor.toARGB32(),
-            backgroundColorValue: _backgroundColor.toARGB32(),
-            audioNotes: _audioPaths,
-            audioTitles: _audioTitles,
-          );
-
-          if (widget.note != null) {
-            widget.note!
-              ..title = _titleController.text
-              ..content = _contentController.text
-              ..folderId = widget.folderId ?? widget.note!.folderId
-              ..backgroundImagePath = _selectedImage?.path
-              ..textColorValue = _textColor.toARGB32()
-              ..backgroundColorValue = _backgroundColor.toARGB32()
-              ..audioNotes = note.audioNotes
-              ..audioTitles = note.audioTitles;
-
-            await widget.note!.save();
-            Navigator.pop(context, widget.note);
-          } else {
-            Navigator.pop(context, note);
-          }
-        },
+        onPressed: _saveNote,
+        // onPressed: () async {
+        //   final note = SaveNote(
+        //     title: _titleController.text,
+        //     content: _contentController.text,
+        //     folderId: widget.folderId,
+        //     backgroundImagePath: _selectedImage?.path,
+        //     textColorValue: _textColor.toARGB32(),
+        //     backgroundColorValue: _backgroundColor.toARGB32(),
+        //     audioNotes: _audioPaths,
+        //     audioTitles: _audioTitles,
+        //   );
+        //
+        //   if (widget.note != null) {
+        //     widget.note!
+        //       ..title = _titleController.text
+        //       ..content = _contentController.text
+        //       ..folderId = widget.folderId ?? widget.note!.folderId
+        //       ..backgroundImagePath = _selectedImage?.path
+        //       ..textColorValue = _textColor.toARGB32()
+        //       ..backgroundColorValue = _backgroundColor.toARGB32()
+        //       ..audioNotes = note.audioNotes
+        //       ..audioTitles = note.audioTitles;
+        //
+        //     await widget.note!.save();
+        //     Navigator.pop(context, widget.note);
+        //   } else {
+        //     Navigator.pop(context, note);
+        //   }
+        // },
         backgroundColor: Colors.yellow,
         shape: CircleBorder(),
         child: Icon(FluentIcons.save_24_regular, color: Colors.black),
@@ -332,6 +678,38 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _saveNote() async {
+    final note = SaveNote(
+      title: _titleController.text,
+      content: _contentController.text,
+      folderId: widget.folderId,
+      backgroundImagePath: _selectedImage?.path,
+      textColorValue: _textColor.toARGB32(),
+      backgroundColorValue: _backgroundColor.toARGB32(),
+      audioNotes: _audioPaths,
+      audioTitles: _audioTitles,
+    );
+
+    if (widget.note != null) {
+      widget.note!
+        ..title = _titleController.text
+        ..content = _contentController.text
+        ..folderId = widget.folderId ?? widget.note!.folderId
+        ..backgroundImagePath = _selectedImage?.path
+        ..textColorValue = _textColor.toARGB32()
+        ..backgroundColorValue = _backgroundColor.toARGB32()
+        ..audioNotes = note.audioNotes
+        ..audioTitles = note.audioTitles;
+
+      await widget.note!.save();
+      if (mounted) {
+        Navigator.pop(context, widget.note);
+      }
+    } else {
+      Navigator.pop(context, note);
+    }
   }
 
   void _showRestoreDialog(BuildContext context) {
