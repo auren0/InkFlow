@@ -28,12 +28,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
 
-  const int windowWidth = 500;
-  const int windowHeight = 800;
+  // const int windowWidth = 500;
+  // const int windowHeight = 800;
 
   Win32Window::Point origin(10, 10);
 
-  Win32Window::Size size(windowWidth, windowHeight);
+  Win32Window::Size size(500, 800);
   if (!window.Create(L"InkFlow", origin, size))
   {
     return EXIT_FAILURE;

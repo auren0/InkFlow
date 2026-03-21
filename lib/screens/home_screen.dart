@@ -33,11 +33,24 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : Padding(
               padding: const EdgeInsets.all(8.0),
+              // child: GridView.builder(
+              //   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              //     crossAxisCount: 2,
+              //     crossAxisSpacing: 5,
+              //     mainAxisSpacing: 5,
+              //     childAspectRatio: 1,
+              //   ),
+              //   itemCount: notes.length,
+              //   itemBuilder: (context, index) {
+              //     final note = notes[index];
+              //     return NoteCard(note: note, noteProvider: noteProvider);
+              //   },
+              // ),
               child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 5,
-                  mainAxisSpacing: 5,
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 250,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
                   childAspectRatio: 1,
                 ),
                 itemCount: notes.length,

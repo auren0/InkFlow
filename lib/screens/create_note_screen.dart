@@ -3,8 +3,10 @@ import 'dart:io';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:note_app/hive_models/save_folder.dart';
 import 'package:note_app/hive_models/save_note.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:note_app/providers/note_provider.dart';
 import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:note_app/widgets/audio_player_widget.dart';
 import 'package:path_provider/path_provider.dart';
@@ -22,6 +24,10 @@ class CreateNoteScreen extends StatefulWidget {
 }
 
 class _CreateNoteScreenState extends State<CreateNoteScreen> {
+  // Test
+  final List<SaveFolder> folders = [];
+
+  // ==================================================================
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
 
@@ -217,7 +223,8 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     backgroundColor: Colors.brown,
                   ),
                   onPressed: () {
-                    widget.noteProvider.addToArchive(widget.note);
+                    // TODO fix this
+                    // widget.noteProvider.addToArchive(widget.note);
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -309,10 +316,11 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                                         style: TextStyle(fontFamily: 'Oswald'),
                                       ),
                                       onTap: () {
-                                        noteProvider.addNoteToFolder(
-                                          widget.note,
-                                          folder,
-                                        );
+                                        // TODO
+                                        // noteProvider.addNoteToFolder(
+                                        //   widget.note,
+                                        //   folder,
+                                        // );
                                         Navigator.pop(context);
                                         ScaffoldMessenger.of(
                                           context,
@@ -362,7 +370,8 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     backgroundColor: Colors.red,
                   ),
                   onPressed: () {
-                    widget.noteProvider.moveNoteToTrash(widget.note);
+                    // TODO
+                    // widget.noteProvider.moveNoteToTrash(widget.note);
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -477,16 +486,16 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           onPressed: _onWillPop,
           icon: Icon(FluentIcons.edit_arrow_back_24_regular),
         ),
-        actions: [
-          IconButton(
-            onPressed: () {},
-            icon: Icon(FluentIcons.options_24_regular),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: Icon(FluentIcons.more_vertical_24_regular),
-          ),
-        ],
+        // actions: [
+        //   IconButton(
+        //     onPressed: () {},
+        //     icon: Icon(FluentIcons.options_24_regular),
+        //   ),
+        //   IconButton(
+        //     onPressed: () {},
+        //     icon: Icon(FluentIcons.more_vertical_24_regular),
+        //   ),
+        // ],
       ),
       body: Stack(
         children: [
@@ -641,39 +650,41 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
               ),
               onPressed: () => _showRestoreDialog(context),
             ),
-            IconButton(
-              icon: Icon(
-                _isRecording
-                    ? FluentIcons.stop_24_regular
-                    : FluentIcons.mic_24_regular,
-                color: Colors.black,
+            if (Platform.isAndroid || Platform.isIOS)
+              IconButton(
+                icon: Icon(
+                  _isRecording
+                      ? FluentIcons.stop_24_regular
+                      : FluentIcons.mic_24_regular,
+                  color: Colors.black,
+                ),
+                onPressed: () {},
+                // onPressed: () async {
+                //   if (Platform.isWindows) {
+                //     ScaffoldMessenger.of(context).showSnackBar(
+                //       SnackBar(
+                //         content: const Text(
+                //           'Аудиозаметки не поддерживаются на виндовс',
+                //           style: TextStyle(fontFamily: 'Oswald'),
+                //         ),
+                //       ),
+                //     );
+                //     return;
+                //   }
+                //   if (_isRecording) {
+                //     await _stopRecording();
+                //   } else {
+                //     await _startRecording();
+                //   }
+                // },
               ),
-              onPressed: () async {
-                if (Platform.isWindows) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text(
-                        'Аудиозаметки не поддерживаются на виндовс',
-                        style: TextStyle(fontFamily: 'Oswald'),
-                      ),
-                    ),
-                  );
-                  return;
-                }
-                if (_isRecording) {
-                  await _stopRecording();
-                } else {
-                  await _startRecording();
-                }
-              },
-            ),
-            IconButton(
-              icon: const Icon(
-                FluentIcons.attach_24_regular,
-                color: Colors.black,
-              ),
-              onPressed: () => {},
-            ),
+            // IconButton(
+            //   icon: const Icon(
+            //     FluentIcons.attach_24_regular,
+            //     color: Colors.black,
+            //   ),
+            //   onPressed: () {},
+            // ),
           ],
         ),
       ),

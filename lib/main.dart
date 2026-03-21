@@ -18,13 +18,13 @@ import 'dart:io' show Platform;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (!kIsWeb && Platform.isLinux) {
-    const double width = 450;
-    const double height = 750;
+  if (kIsWeb || Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    const double width = 600;
+    const double height = 700;
 
-    window.setWindowTitle('Notes App');
+    window.setWindowTitle('InkFlow');
     window.setWindowMinSize(const Size(width, height));
-    window.setWindowMaxSize(const Size(width, height));
+    // window.setWindowMaxSize(const Size(width, height));
   }
 
   await HiveService.init();
@@ -91,7 +91,7 @@ class _MainNavigationState extends State<MainNavigation>
     setState(() {
       _currentScreenIndex = index;
     });
-    Navigator.pop(context);
+    // Navigator.pop(context);
   }
 
   @override
@@ -173,301 +173,285 @@ class _MainNavigationState extends State<MainNavigation>
               ]
             : null,
       ),
-      // drawer: Drawer(
-      //   child: Padding(
-      //     padding: const EdgeInsets.all(16.0),
-      //     child: Column(
-      //       children: [
-      //         SizedBox(
-      //           width: double.infinity,
-      //           child: Container(
-      //             padding: const EdgeInsets.all(10.0),
-      //             decoration: BoxDecoration(
-      //               color: Colors.white,
-      //               borderRadius: BorderRadius.circular(16),
-      //             ),
-      //             child: Column(
-      //               mainAxisAlignment: MainAxisAlignment.center,
-      //               children: [
-      //                 Container(
-      //                   width: 80,
-      //                   height: 80,
-      //                   decoration: BoxDecoration(
-      //                     shape: BoxShape.circle,
-      //                     border: Border.all(color: Colors.red, width: 2),
-      //                   ),
-      //                 ),
-      //                 const SizedBox(height: 10),
-      //                 const Text('johndoe@gmail.com'),
-      //               ],
-      //             ),
-      //           ),
-      //         ),
-      //         const SizedBox(height: 20),
-      //         Expanded(
-      //           child: Container(
-      //             decoration: BoxDecoration(
-      //               color: Colors.white,
-      //               borderRadius: BorderRadius.circular(16),
-      //             ),
-      //             child: ListView(
-      //               padding: const EdgeInsets.all(10.0),
-      //               children: [
-      //                 SlideTransition(
-      //                   position: _slideAnimation,
-      //                   child: ListTile(
-      //                     leading: const Icon(Icons.home),
-      //                     title: const Text('data'),
-      //                   ),
-      //                 ),
-      //               ],
-      //             ),
-      //           ),
-      //         ),
-      //       ],
-      //     ),
-      //   ),
-      // ),
-      drawer: Drawer(
-        child: ListView(
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(color: Colors.yellow),
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: const Text(
-                  'Меню',
-                  style: TextStyle(
-                    fontFamily: 'Oswald',
-                    color: Colors.black,
-                    fontSize: 35,
+      body: MediaQuery.of(context).size.width > 650
+          ? Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border(right: BorderSide(color: Colors.white10)),
                   ),
-                ),
-              ),
-            ),
-            SlideTransition(
-              position: _slideAnimation,
-              child: _buildDrawerTile(0, FluentIcons.home_24_filled, 'Главная'),
-            ),
-            const SizedBox(height: 10),
-            SlideTransition(
-              position: _slideAnimation,
-              child: FadeTransition(
-                opacity: _fadeAnimation,
-                child: _buildDrawerTile(
-                  1,
-                  FluentIcons.settings_24_filled,
-                  'Настройки',
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: const Divider(),
-            ),
-            _buildDrawerTile(2, FluentIcons.archive_24_filled, 'Архив'),
-            const SizedBox(height: 10),
-            _buildDrawerTile(3, FluentIcons.delete_24_filled, 'Корзина'),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: const Divider(),
-            ),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: folders.length,
-              itemBuilder: (context, index) {
-                final folder = folders[index];
+                  child: SizedBox(
+                    width: 300,
+                    child: Column(
+                      children: [
+                        _buildDrawerTile(
+                          0,
+                          FluentIcons.home_24_filled,
+                          'Главная',
+                        ),
 
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                  child: ListTile(
-                    onLongPress: () {
-                      showDialog(
-                        context: context,
-                        builder: (_) => AlertDialog(
-                          title: const Text(
-                            'Выберите вариант',
-                            style: TextStyle(fontFamily: 'Oswald'),
-                          ),
-                          actions: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16.0,
-                                        horizontal: 25.0,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      side: BorderSide(
-                                        color: Colors.green,
-                                        width: 2,
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                    },
-                                    child: Text(
-                                      "Отмена",
-                                      style: TextStyle(
-                                        color: Colors.green,
-                                        fontFamily: 'Oswald',
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.blue,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16.0,
-                                        horizontal: 25.0,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      side: BorderSide(
-                                        color: Colors.blue,
-                                        width: 2,
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      Navigator.push(
-                                        context,
-                                        CupertinoPageRoute(
-                                          builder: (_) => CreateFolderScreen(
-                                            folder: folder,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: const Text(
-                                      'Переименовать',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontFamily: 'Oswald',
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16.0,
-                                        horizontal: 25.0,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      backgroundColor: Colors.red,
-                                    ),
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      foldersProvider.moveFolderToTrash(folder);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: const Text(
-                                            'Папка перемещена в корзину',
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: Text(
-                                      "Удалить",
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontFamily: 'Oswald',
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                        const SizedBox(height: 5),
+
+                        _buildDrawerTile(
+                          1,
+                          FluentIcons.settings_24_filled,
+                          'Настройки',
                         ),
-                      );
-                    },
-                    leading: Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Color(folder.colorValue),
-                        border: Border.all(color: Colors.white, width: 2),
-                        shape: BoxShape.circle,
+
+                        const SizedBox(height: 5),
+
+                        _buildDrawerTile(
+                          2,
+                          FluentIcons.archive_24_filled,
+                          'Архив',
+                        ),
+
+                        const SizedBox(height: 5),
+
+                        _buildDrawerTile(
+                          3,
+                          FluentIcons.delete_24_filled,
+                          'Корзина',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                Expanded(
+                  child: IndexedStack(
+                    index: _currentScreenIndex,
+                    children: _screens,
+                  ),
+                ),
+              ],
+            )
+          : _screens[_currentScreenIndex],
+      // body: IndexedStack(index: _currentScreenIndex, children: _screens),
+      drawer: MediaQuery.of(context).size.width > 500
+          ? null
+          : Drawer(
+              child: ListView(
+                children: [
+                  DrawerHeader(
+                    decoration: BoxDecoration(color: Colors.yellow),
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: const Text(
+                        'Меню',
+                        style: TextStyle(
+                          fontFamily: 'Oswald',
+                          color: Colors.black,
+                          fontSize: 35,
+                        ),
                       ),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                  ),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: _buildDrawerTile(
+                      0,
+                      FluentIcons.home_24_filled,
+                      'Главная',
                     ),
-                    title: Text(
-                      folder.title,
-                      style: TextStyle(
-                        fontFamily: 'Oswald',
-                        fontFamilyFallback: ['Apple'],
+                  ),
+                  const SizedBox(height: 10),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: _buildDrawerTile(
+                        1,
+                        FluentIcons.settings_24_filled,
+                        'Настройки',
                       ),
                     ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        CupertinoPageRoute(
-                          builder: (_) => FolderScreen(folder: folder),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: const Divider(),
+                  ),
+                  _buildDrawerTile(2, FluentIcons.archive_24_filled, 'Архив'),
+                  const SizedBox(height: 10),
+                  _buildDrawerTile(3, FluentIcons.delete_24_filled, 'Корзина'),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: const Divider(),
+                  ),
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: folders.length,
+                    itemBuilder: (context, index) {
+                      final folder = folders[index];
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: ListTile(
+                          onLongPress: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text(
+                                  'Выберите вариант',
+                                  style: TextStyle(fontFamily: 'Oswald'),
+                                ),
+                                actions: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16.0,
+                                              horizontal: 25.0,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            side: BorderSide(
+                                              color: Colors.green,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                          },
+                                          child: Text(
+                                            "Отмена",
+                                            style: TextStyle(
+                                              color: Colors.green,
+                                              fontFamily: 'Oswald',
+                                              fontSize: 18,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.blue,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16.0,
+                                              horizontal: 25.0,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            side: BorderSide(
+                                              color: Colors.blue,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            Navigator.push(
+                                              context,
+                                              CupertinoPageRoute(
+                                                builder: (_) =>
+                                                    CreateFolderScreen(
+                                                      folder: folder,
+                                                    ),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'Переименовать',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontFamily: 'Oswald',
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 5),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 16.0,
+                                              horizontal: 25.0,
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                          onPressed: () {
+                                            Navigator.pop(context);
+                                            foldersProvider.moveFolderToTrash(
+                                              folder,
+                                            );
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: const Text(
+                                                  'Папка перемещена в корзину',
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          child: Text(
+                                            "Удалить",
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontFamily: 'Oswald',
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                          leading: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Color(folder.colorValue),
+                              border: Border.all(color: Colors.white, width: 2),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          title: Text(
+                            folder.title,
+                            style: TextStyle(
+                              fontFamily: 'Oswald',
+                              fontFamilyFallback: ['Apple'],
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              CupertinoPageRoute(
+                                builder: (_) => FolderScreen(folder: folder),
+                              ),
+                            );
+                          },
                         ),
                       );
                     },
                   ),
-                );
-              },
+                ],
+              ),
             ),
-            // ListView.builder(
-            //   shrinkWrap: true,
-            //   physics: const NeverScrollableScrollPhysics(),
-            //   itemCount: 5,
-            //   itemBuilder: (context, index) {
-            //     return Padding(
-            //       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            //       child: ListTile(
-            //         leading: Container(
-            //           width: 24,
-            //           height: 24,
-            //           decoration: BoxDecoration(
-            //             border: Border.all(color: Colors.white, width: 2),
-            //             shape: BoxShape.circle,
-            //           ),
-            //         ),
-            //         shape: RoundedRectangleBorder(
-            //           borderRadius: BorderRadius.circular(20),
-            //         ),
-            //         title: Text(
-            //           '${index + 1}',
-            //           style: TextStyle(fontFamily: 'Oswald'),
-            //         ),
-            //         onTap: () {},
-            //       ),
-            //     );
-            //   },
-            // ),
-          ],
-        ),
-      ),
-      body: IndexedStack(index: _currentScreenIndex, children: _screens),
     );
   }
 
