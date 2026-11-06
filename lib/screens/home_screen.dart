@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:note_app/hive_models/save_note.dart';
 import 'package:note_app/providers/note_provider.dart';
 import 'package:note_app/screens/create_note_screen.dart';
+import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final noteProvider = context.watch<NoteProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
     // final notes = noteProvider.notes;
     final notes = noteProvider.notes
         .where((note) => note.folderId == null)
@@ -62,23 +64,19 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
-          final result = await Navigator.push(
+          await Navigator.push(
             context,
-            CupertinoPageRoute(builder: (_) => CreateNoteScreen()),
+            CupertinoPageRoute(builder: (_) => const CreateNoteScreen()),
           );
-
-          if (result != null && result is SaveNote) {
-            noteProvider.addNote(result);
-            // setState(() {
-            //   _notes.add(result);
-            // });
-          }
         },
-        backgroundColor: Colors.yellow,
-        icon: const Icon(Icons.create, color: Colors.black),
-        label: const Text(
+        backgroundColor: themeProvider.primaryColor,
+        icon: Icon(Icons.create, color: themeProvider.onPrimaryColor),
+        label: Text(
           'Создать заметку',
-          style: TextStyle(fontFamily: 'Oswald', color: Colors.black),
+          style: TextStyle(
+            fontFamily: 'Oswald',
+            color: themeProvider.onPrimaryColor,
+          ),
         ),
       ),
     );
@@ -101,26 +99,47 @@ class _NoteCardState extends State<NoteCard> {
   @override
   Widget build(BuildContext context) {
     final noteProvider = context.watch<NoteProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
+    final theme = Theme.of(context);
     final folders = noteProvider.folders;
+    final note = widget.note;
+    final hasAudio = note.audioNotes?.isNotEmpty ?? false;
+    final hasAttachments = note.attachments?.isNotEmpty ?? false;
+    final cardColor =
+        note.usesCustomBackground && note.backgroundColorValue != null
+        ? Color(note.backgroundColorValue!)
+        : null;
+    final defaultTextColor =
+        cardColor != null && cardColor.computeLuminance() > 0.5
+        ? Colors.black
+        : theme.colorScheme.onSurface;
+    final textColor = note.usesCustomTextColor && note.textColorValue != null
+        ? Color(note.textColorValue!)
+        : defaultTextColor;
+    final title = note.title.trim();
+    final displayTitle = title.isNotEmpty
+        ? note.title
+        : hasAudio && hasAttachments
+        ? 'Аудио и файлы'
+        : hasAudio
+        ? 'Аудиозаметка'
+        : hasAttachments
+        ? 'Файлы'
+        : 'Без названия';
 
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
       elevation: 2,
-      color: widget.note.backgroundColorValue != null
-          ? Color(widget.note.backgroundColorValue!)
-          : Colors.yellow,
+      color: cardColor,
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
         onTap: () async {
-          final result = await Navigator.push(
+          await Navigator.push(
             context,
             CupertinoPageRoute(
               builder: (_) => CreateNoteScreen(note: widget.note),
             ),
           );
-          if (result != null && result is SaveNote) {
-            widget.noteProvider.updateNote(widget.note, result);
-          }
         },
         onLongPress: () {
           showDialog(
@@ -211,7 +230,7 @@ class _NoteCardState extends State<NoteCard> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          backgroundColor: Colors.yellow,
+                          backgroundColor: themeProvider.primaryColor,
                         ),
                         onPressed: () {
                           Navigator.pop(context);
@@ -310,7 +329,7 @@ class _NoteCardState extends State<NoteCard> {
                           style: TextStyle(
                             fontSize: 18,
                             fontFamily: 'Oswald',
-                            color: Colors.black,
+                            color: themeProvider.onPrimaryColor,
                           ),
                         ),
                       ),
@@ -363,15 +382,16 @@ class _NoteCardState extends State<NoteCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.note.title,
+                displayTitle,
                 style: TextStyle(
-                  color: widget.note.textColorValue != null
-                      ? Color(widget.note.textColorValue!)
-                      : Colors.black,
+                  color: textColor,
                   fontFamily: 'Jura',
-                  fontFamilyFallback: ['Apple'],
+                  fontFamilyFallback: const ['Apple'],
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
+                  fontStyle: title.isEmpty
+                      ? FontStyle.italic
+                      : FontStyle.normal,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -379,22 +399,69 @@ class _NoteCardState extends State<NoteCard> {
               const SizedBox(height: 8),
               Expanded(
                 child: Text(
-                  widget.note.content,
+                  note.content.isEmpty && (hasAudio || hasAttachments)
+                      ? 'Без текста'
+                      : note.content,
                   style: TextStyle(
-                    color: widget.note.textColorValue != null
-                        ? Color(widget.note.textColorValue!)
-                        : Colors.black,
+                    color: note.content.isEmpty
+                        ? textColor.withValues(alpha: 0.65)
+                        : textColor,
                     fontFamily: 'Jura',
-                    fontFamilyFallback: ['Apple'],
+                    fontFamilyFallback: const ['Apple'],
                     fontSize: 14,
+                    fontStyle: note.content.isEmpty
+                        ? FontStyle.italic
+                        : FontStyle.normal,
                   ),
                   maxLines: 5,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (hasAudio || hasAttachments) ...[
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (hasAudio)
+                      _mediaBadge(
+                        Icons.mic_none_rounded,
+                        '${note.audioNotes!.length}',
+                        textColor,
+                      ),
+                    if (hasAttachments)
+                      _mediaBadge(
+                        Icons.attach_file_rounded,
+                        '${note.attachments!.length}',
+                        textColor,
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _mediaBadge(IconData icon, String count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            count,
+            style: TextStyle(fontFamily: 'Oswald', fontSize: 12, color: color),
+          ),
+        ],
       ),
     );
   }

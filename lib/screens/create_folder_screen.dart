@@ -29,13 +29,12 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
     );
     _selectedColor = widget.folder != null
         ? Color(widget.folder!.colorValue)
-        : Colors.yellow;
+        : context.read<ThemeProvider>().primaryColor;
   }
 
   @override
   Widget build(BuildContext context) {
-    // final themeProvider = context.watch<ThemeProvider>();
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final themeProvider = context.watch<ThemeProvider>();
 
     return Scaffold(
       appBar: AppBar(
@@ -53,10 +52,13 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.all(20.0),
-                  foregroundColor: Colors.yellow,
+                  foregroundColor: themeProvider.primaryColor,
                   // backgroundColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
-                    side: BorderSide(color: Colors.yellow, width: 2),
+                    side: BorderSide(
+                      color: themeProvider.primaryColor,
+                      width: 2,
+                    ),
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -91,7 +93,7 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             side: BorderSide(
-                              color: Colors.yellow[600]!,
+                              color: themeProvider.primaryColor,
                               width: 2,
                             ),
                           ),
@@ -101,7 +103,7 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                           child: Text(
                             "Отмена",
                             style: TextStyle(
-                              color: Colors.yellow[600]!,
+                              color: themeProvider.primaryColor,
                               fontFamily: 'Oswald',
                               fontSize: 18,
                             ),
@@ -116,7 +118,8 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            backgroundColor: Colors.yellow,
+                            backgroundColor: themeProvider.primaryColor,
+                            foregroundColor: themeProvider.onPrimaryColor,
                           ),
                           onPressed: () {
                             setState(() {
@@ -129,7 +132,7 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                             style: TextStyle(
                               fontSize: 18,
                               fontFamily: 'Oswald',
-                              color: Colors.black,
+                              color: themeProvider.onPrimaryColor,
                             ),
                           ),
                         ),
@@ -140,7 +143,9 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                 child: Text(
                   'Выбрать цвет тега',
                   style: TextStyle(
-                    color: themeProvider.isDark ? Colors.yellow : Colors.black,
+                    color: themeProvider.isDark
+                        ? themeProvider.primaryColor
+                        : Colors.black,
                     fontFamily: 'Oswald',
                   ),
                 ),
@@ -150,23 +155,30 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
             Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: Colors.yellow.withValues(alpha: 0.3),
-                  selectionHandleColor: Colors.yellow,
+                  selectionColor: themeProvider.primaryColor.withValues(
+                    alpha: 0.3,
+                  ),
+                  selectionHandleColor: themeProvider.primaryColor,
                 ),
               ),
               child: TextField(
                 controller: _folderTitleController,
-                cursorColor: Colors.yellow,
+                cursorColor: themeProvider.primaryColor,
                 decoration: InputDecoration(
                   floatingLabelStyle: TextStyle(
                     fontFamily: 'Oswald',
-                    color: themeProvider.isDark ? Colors.yellow : Colors.black,
+                    color: themeProvider.isDark
+                        ? themeProvider.primaryColor
+                        : Colors.black,
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.yellow, width: 2),
+                    borderSide: BorderSide(
+                      color: themeProvider.primaryColor,
+                      width: 2,
+                    ),
                     // borderRadius: BorderRadius.circular(10),
                   ),
-                  focusColor: Colors.yellow,
+                  focusColor: themeProvider.primaryColor,
                   border: OutlineInputBorder(),
                   label: const Text(
                     'Название',
@@ -189,7 +201,7 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.all(20.0),
-                  backgroundColor: Colors.yellow,
+                  backgroundColor: themeProvider.primaryColor,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -209,28 +221,29 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                     return;
                   }
 
+                  final noteProvider = context.read<NoteProvider>();
+
                   if (widget.folder == null) {
                     final folder = SaveFolder(
                       title: title,
                       colorValue: _selectedColor.toARGB32(),
                     );
-                    if (!mounted) return;
-                    context.read<NoteProvider>().addFolder(folder);
+                    await noteProvider.addFolder(folder);
                   } else {
                     widget.folder!.title = title;
                     widget.folder!.colorValue = _selectedColor.toARGB32();
-                    await widget.folder!.save();
-
-                    if (!mounted) return;
-                    context.read<NoteProvider>().notifyListeners();
+                    await noteProvider.saveFolderChanges(widget.folder!);
                   }
 
-                  if (!mounted) return;
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
                 child: Text(
                   widget.folder == null ? 'Создать' : 'Сохранить изменения',
-                  style: TextStyle(color: Colors.black, fontFamily: 'Oswald'),
+                  style: TextStyle(
+                    color: themeProvider.onPrimaryColor,
+                    fontFamily: 'Oswald',
+                  ),
                 ),
               ),
             ),

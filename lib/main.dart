@@ -19,7 +19,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (kIsWeb || Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-    const double width = 600;
+    const double width = 500;
     const double height = 700;
 
     window.setWindowTitle('InkFlow');
@@ -47,12 +47,66 @@ class NoteApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
 
+    final lightTheme = _buildTheme(themeProvider, brightness: Brightness.light);
+    final darkTheme = _buildTheme(
+      themeProvider,
+      brightness: Brightness.dark,
+      oled: themeProvider.isOled,
+    );
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
+      theme: lightTheme,
+      darkTheme: darkTheme,
       themeMode: themeProvider.currentTheme,
-      home: MainNavigation(),
+      home: const MainNavigation(),
+    );
+  }
+
+  ThemeData _buildTheme(
+    ThemeProvider themeProvider, {
+    required Brightness brightness,
+    bool oled = false,
+  }) {
+    final base = brightness == Brightness.dark
+        ? ThemeData.dark()
+        : ThemeData.light();
+
+    var colorScheme = ColorScheme.fromSeed(
+      seedColor: themeProvider.primaryColor,
+      brightness: brightness,
+    );
+
+    if (oled) {
+      colorScheme = colorScheme.copyWith(
+        surface: Colors.black,
+        surfaceDim: Colors.black,
+        surfaceBright: const Color(0xFF101010),
+        surfaceContainerLowest: Colors.black,
+        surfaceContainerLow: const Color(0xFF080808),
+        surfaceContainer: const Color(0xFF0D0D0D),
+        surfaceContainerHigh: const Color(0xFF141414),
+        surfaceContainerHighest: const Color(0xFF1A1A1A),
+        onSurface: Colors.white,
+        onSurfaceVariant: const Color(0xFFB8B8B8),
+        outlineVariant: const Color(0xFF2A2A2A),
+      );
+    }
+
+    final theme = base.copyWith(colorScheme: colorScheme);
+
+    if (!oled) return theme;
+
+    return theme.copyWith(
+      scaffoldBackgroundColor: Colors.black,
+      canvasColor: Colors.black,
+      cardColor: const Color(0xFF0D0D0D),
+      dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF0D0D0D)),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.black,
+        surfaceTintColor: Colors.transparent,
+      ),
+      bottomAppBarTheme: const BottomAppBarThemeData(color: Colors.black),
     );
   }
 }
@@ -128,6 +182,7 @@ class _MainNavigationState extends State<MainNavigation>
   @override
   Widget build(BuildContext context) {
     final foldersProvider = context.watch<NoteProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
     final folders = foldersProvider.folders;
 
     return Scaffold(
@@ -228,20 +283,21 @@ class _MainNavigationState extends State<MainNavigation>
             )
           : _screens[_currentScreenIndex],
       // body: IndexedStack(index: _currentScreenIndex, children: _screens),
-      drawer: MediaQuery.of(context).size.width > 500
-          ? null
-          : Drawer(
+      drawer: MediaQuery.of(context).size.width < 650
+          ? Drawer(
               child: ListView(
                 children: [
                   DrawerHeader(
-                    decoration: BoxDecoration(color: Colors.yellow),
+                    decoration: BoxDecoration(
+                      color: themeProvider.primaryColor,
+                    ),
                     child: FadeTransition(
                       opacity: _fadeAnimation,
-                      child: const Text(
+                      child: Text(
                         'Меню',
                         style: TextStyle(
                           fontFamily: 'Oswald',
-                          color: Colors.black,
+                          color: themeProvider.onPrimaryColor,
                           fontSize: 35,
                         ),
                       ),
@@ -451,16 +507,19 @@ class _MainNavigationState extends State<MainNavigation>
                   ),
                 ],
               ),
-            ),
+            )
+          : null,
     );
   }
 
   Widget _buildDrawerTile(int index, IconData icon, String title) {
+    final themeProvider = context.watch<ThemeProvider>();
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: ListTile(
-        selectedTileColor: Colors.yellow,
-        selectedColor: Colors.black,
+        selectedTileColor: themeProvider.primaryColor,
+        selectedColor: themeProvider.onPrimaryColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         leading: Icon(icon),
         title: Text(title, style: TextStyle(fontFamily: 'Oswald')),

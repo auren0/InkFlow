@@ -28,6 +28,15 @@ class SaveNote extends HiveObject {
   @HiveField(7)
   List<String>? audioTitles;
 
+  @HiveField(8)
+  List<String>? attachments;
+
+  @HiveField(9)
+  bool? hasCustomBackground;
+
+  @HiveField(10)
+  bool? hasCustomTextColor;
+
   SaveNote({
     required this.title,
     required this.content,
@@ -37,5 +46,20 @@ class SaveNote extends HiveObject {
     this.backgroundColorValue,
     this.audioNotes,
     this.audioTitles,
+    this.attachments,
+    this.hasCustomBackground,
+    this.hasCustomTextColor,
   });
+
+  /// Старые заметки всегда сохраняли жёлтый фон, даже если его не выбирали.
+  bool get usesCustomBackground {
+    if (hasCustomBackground != null) return hasCustomBackground!;
+    return backgroundColorValue != null && backgroundColorValue != 0xFFFFEB3B;
+  }
+
+  /// Старые заметки всегда сохраняли чёрный цвет текста, даже если его не выбирали.
+  bool get usesCustomTextColor {
+    if (hasCustomTextColor != null) return hasCustomTextColor!;
+    return textColorValue != null && textColorValue != 0xFF000000;
+  }
 }

@@ -1,17 +1,24 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:note_app/hive_models/save_folder.dart';
-import 'package:note_app/hive_models/save_note.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:note_app/hive_models/save_note.dart';
 import 'package:note_app/providers/note_provider.dart';
 import 'package:note_app/shared_preferences/theme_provider.dart';
 import 'package:note_app/widgets/audio_player_widget.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
+
+enum OptionAction { save, saveAndExit, cancel }
 
 class CreateNoteScreen extends StatefulWidget {
   final SaveNote? note;
@@ -24,144 +31,457 @@ class CreateNoteScreen extends StatefulWidget {
 }
 
 class _CreateNoteScreenState extends State<CreateNoteScreen> {
-  // Test
-  final List<SaveFolder> folders = [];
-
-  // ==================================================================
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _contentController = TextEditingController();
 
-  Color _backgroundColor = Colors.yellow;
-  Color _textColor = Colors.black;
+  late final Color _defaultBackgroundColor;
+  late final Color _defaultTextColor;
+  late final String _defaultNoteTitle;
+
+  SaveNote? _note;
+  int? _folderId;
+
+  Color? _backgroundColor;
+  Color? _textColor;
+  bool _hasCustomBackground = false;
+  bool _hasCustomTextColor = false;
 
   File? _selectedImage;
-  // audio
-  // File? audioFile;
+
   bool _isRecording = false;
   final AudioRecorder _record = AudioRecorder();
-  // String? _currentPath;
 
   List<String> _audioPaths = [];
   List<String> _audioTitles = [];
+  List<String> _attachments = [];
 
   bool _hasChanges = false;
+  bool _isSaving = false;
+
+  bool _defaultsInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.note != null) {
-      _titleController.text = widget.note!.title;
-      _contentController.text = widget.note!.content;
-      if (widget.note!.backgroundImagePath != null &&
-          widget.note!.backgroundImagePath!.isNotEmpty) {
-        _selectedImage = File(widget.note!.backgroundImagePath!);
+
+    _note = widget.note;
+    _folderId = widget.folderId ?? widget.note?.folderId;
+    _defaultNoteTitle = _formatDefaultTitle(DateTime.now());
+
+    if (_note != null) {
+      _titleController.text = _note!.title;
+      _contentController.text = _note!.content;
+      if (_note!.backgroundImagePath != null &&
+          _note!.backgroundImagePath!.isNotEmpty) {
+        _selectedImage = File(_note!.backgroundImagePath!);
       }
-      _backgroundColor = widget.note!.backgroundColorValue != null
-          ? Color(widget.note!.backgroundColorValue!)
-          : Colors.yellow;
-      _textColor = widget.note!.textColorValue != null
-          ? Color(widget.note!.textColorValue!)
-          : Colors.black;
-      _audioPaths = widget.note!.audioNotes?.toList() ?? [];
+
+      _hasCustomBackground =
+          _note!.usesCustomBackground && _note!.backgroundColorValue != null;
+      _backgroundColor = _hasCustomBackground
+          ? Color(_note!.backgroundColorValue!)
+          : null;
+
+      _hasCustomTextColor =
+          _note!.usesCustomTextColor && _note!.textColorValue != null;
+      _textColor = _hasCustomTextColor ? Color(_note!.textColorValue!) : null;
+
+      _audioPaths = _note!.audioNotes?.toList() ?? [];
       _audioTitles =
-          widget.note!.audioTitles?.toList() ??
-          List.filled(widget.note!.audioNotes?.length ?? 0, 'Аудио заметка');
+          _note!.audioTitles?.toList() ??
+          List.filled(_note!.audioNotes?.length ?? 0, 'Аудио заметка');
+      _attachments = _note!.attachments?.toList() ?? [];
+    } else {
+      _titleController.text = _defaultNoteTitle;
     }
 
-    _titleController.addListener(_checkForChanges);
-    _contentController.addListener(_checkForChanges);
+    _titleController.addListener(_onTextChanged);
+    _contentController.addListener(_onTextChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_defaultsInitialized) return;
+    _defaultsInitialized = true;
+
+    final theme = Theme.of(context);
+    _defaultBackgroundColor = theme.scaffoldBackgroundColor;
+    _defaultTextColor = theme.colorScheme.onSurface;
+  }
+
+  String _formatDefaultTitle(DateTime date) {
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+    return '${twoDigits(date.day)}.${twoDigits(date.month)}.${date.year} '
+        '${twoDigits(date.hour)}:${twoDigits(date.minute)}';
   }
 
   @override
   void dispose() {
-    _titleController.removeListener(_checkForChanges);
-    _contentController.removeListener(_checkForChanges);
+    _titleController.removeListener(_onTextChanged);
+    _contentController.removeListener(_onTextChanged);
+    _titleController.dispose();
+    _contentController.dispose();
+    _record.dispose();
     super.dispose();
   }
 
-  void _checkForChanges() {
-    if (widget.note == null) {
-      setState(() {
-        _hasChanges =
-            _titleController.text.isNotEmpty ||
-            _contentController.text.isNotEmpty;
-      });
-    } else {
-      setState(() {
-        _hasChanges =
-            _titleController.text != widget.note!.title ||
-            _contentController.text != widget.note!.content ||
-            _selectedImage?.path != widget.note!.backgroundImagePath ||
-            _backgroundColor.toARGB32() !=
-                (widget.note!.backgroundColorValue ??
-                    Colors.yellow.toARGB32()) ||
-            _textColor.toARGB32() !=
-                (widget.note!.textColorValue ?? Colors.black.toARGB32()) ||
-            _audioPaths.length != (widget.note!.audioNotes?.length ?? 0);
-      });
+  // ============================ Отслеживание изменений ============================
+
+  bool _computeHasChanges() {
+    final note = _note;
+
+    if (note == null) {
+      return _titleController.text != _defaultNoteTitle ||
+          _contentController.text.isNotEmpty ||
+          _selectedImage != null ||
+          _folderId != widget.folderId ||
+          _hasCustomBackground ||
+          _hasCustomTextColor ||
+          _audioPaths.isNotEmpty ||
+          _attachments.isNotEmpty;
+    }
+
+    final noteAudioTitles =
+        note.audioTitles ??
+        List.filled(note.audioNotes?.length ?? 0, 'Аудио заметка');
+
+    return _titleController.text != note.title ||
+        _contentController.text != note.content ||
+        _folderId != note.folderId ||
+        _selectedImage?.path != note.backgroundImagePath ||
+        _hasCustomBackground != note.usesCustomBackground ||
+        (_hasCustomBackground &&
+            _backgroundColor?.toARGB32() != note.backgroundColorValue) ||
+        _hasCustomTextColor != note.usesCustomTextColor ||
+        (_hasCustomTextColor &&
+            _textColor?.toARGB32() != note.textColorValue) ||
+        !listEquals(_audioPaths, note.audioNotes ?? const []) ||
+        !listEquals(_audioTitles, noteAudioTitles) ||
+        !listEquals(_attachments, note.attachments ?? const []);
+  }
+
+  void _refreshHasChanges() {
+    final changed = _computeHasChanges();
+    if (changed != _hasChanges && mounted) {
+      setState(() => _hasChanges = changed);
     }
   }
 
-  // void _markAsChanged() {
-  //   setState(() {
-  //     _hasChanges = true;
-  //   });
-  // }
+  void _onTextChanged() => _refreshHasChanges();
+
+  // ============================ Выход и сохранение ============================
+
+  Future<OptionAction> _showUnsavedChangesDialog() async {
+    final theme = Theme.of(context);
+
+    final result = await showDialog<OptionAction>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Вы изменили заметку!',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          content: Text(
+            'Хотите ли вы сохранить текущие изменения?',
+            style: TextStyle(
+              fontFamily: 'Oswald',
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _dialogActionButton(
+                          label: 'Сохранить',
+                          backgroundColor: const Color(0xFF16A34A),
+                          onPressed: () =>
+                              Navigator.pop(dialogContext, OptionAction.save),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _dialogActionButton(
+                          label: 'Сохранить и выйти',
+                          backgroundColor: const Color(0xFF2563EB),
+                          onPressed: () => Navigator.pop(
+                            dialogContext,
+                            OptionAction.saveAndExit,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _dialogActionButton(
+                      label: 'Отмена',
+                      backgroundColor: const Color(0xFF64748B),
+                      onPressed: () =>
+                          Navigator.pop(dialogContext, OptionAction.cancel),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? OptionAction.cancel;
+  }
+
+  Widget _dialogActionButton({
+    required String label,
+    required Color backgroundColor,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      height: 50,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: backgroundColor,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        onPressed: onPressed,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            maxLines: 1,
+            style: const TextStyle(fontFamily: 'Oswald', fontSize: 16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleExit() async {
+    if (!_hasChanges) {
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+
+    final action = await _showUnsavedChangesDialog();
+    if (!mounted) return;
+
+    switch (action) {
+      case OptionAction.save:
+        await _saveNote(exit: false);
+        break;
+      case OptionAction.saveAndExit:
+        await _saveNote(exit: true);
+        break;
+      case OptionAction.cancel:
+        break;
+    }
+  }
+
+  Future<void> _saveNote({bool exit = true}) async {
+    if (_isSaving) return;
+
+    final title = _titleController.text;
+    final hasUserTitle = title.trim().isNotEmpty && title != _defaultNoteTitle;
+    final hasSomething =
+        hasUserTitle ||
+        _contentController.text.isNotEmpty ||
+        _selectedImage != null ||
+        _audioPaths.isNotEmpty ||
+        _attachments.isNotEmpty;
+
+    if (!hasSomething) {
+      _showSnackBar('Пустую заметку сохранить нельзя');
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final noteProvider = context.read<NoteProvider>();
+      final note = _note;
+
+      if (note == null) {
+        final newNote = SaveNote(
+          title: title,
+          content: _contentController.text,
+          folderId: _folderId,
+          backgroundImagePath: _selectedImage?.path,
+          textColorValue: _hasCustomTextColor ? _textColor?.toARGB32() : null,
+          backgroundColorValue: _hasCustomBackground
+              ? _backgroundColor?.toARGB32()
+              : null,
+          audioNotes: _audioPaths.toList(),
+          audioTitles: _audioTitles.toList(),
+          attachments: _attachments.toList(),
+          hasCustomBackground: _hasCustomBackground,
+          hasCustomTextColor: _hasCustomTextColor,
+        );
+        await noteProvider.addNote(newNote);
+        _note = newNote;
+      } else {
+        note
+          ..title = title
+          ..content = _contentController.text
+          ..folderId = _folderId
+          ..backgroundImagePath = _selectedImage?.path
+          ..textColorValue = _hasCustomTextColor ? _textColor?.toARGB32() : null
+          ..backgroundColorValue = _hasCustomBackground
+              ? _backgroundColor?.toARGB32()
+              : null
+          ..audioNotes = _audioPaths.toList()
+          ..audioTitles = _audioTitles.toList()
+          ..attachments = _attachments.toList()
+          ..hasCustomBackground = _hasCustomBackground
+          ..hasCustomTextColor = _hasCustomTextColor;
+        await noteProvider.saveNoteChanges(note);
+      }
+
+      if (!mounted) return;
+
+      setState(() => _hasChanges = false);
+
+      if (exit) {
+        Navigator.pop(context);
+      } else {
+        _showSnackBar('Заметка сохранена');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('Не удалось сохранить заметку: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontFamily: 'Oswald')),
+      ),
+    );
+  }
+
+  // ============================ Изображение ============================
 
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: source);
 
-    if (pickedFile != null) {
+    if (pickedFile != null && mounted) {
       setState(() {
         _selectedImage = File(pickedFile.path);
       });
+      _refreshHasChanges();
     }
   }
 
+  // ============================ Аудио ============================
+
   Future<String> _getAudioFilePath() async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await getApplicationSupportDirectory();
+    final audioDir = Directory(p.join(dir.path, 'audio'));
+    await audioDir.create(recursive: true);
+
+    final isDesktop =
+        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    final extension = isDesktop ? 'wav' : 'm4a';
     final timestamp = DateTime.now().microsecondsSinceEpoch;
-    return '${dir.path}/note_audio_$timestamp.m4a';
+    return p.join(audioDir.path, 'note_audio_$timestamp.$extension');
   }
 
   Future<void> _startRecording() async {
-    if (await _record.hasPermission()) {
+    try {
+      if (!await _record.hasPermission()) {
+        _showSnackBar('Нет разрешения на использование микрофона');
+        return;
+      }
+
+      final isDesktop =
+          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
       final path = await _getAudioFilePath();
+
       await _record.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
+        RecordConfig(
+          encoder: isDesktop ? AudioEncoder.wav : AudioEncoder.aacLc,
           bitRate: 128000,
           sampleRate: 44100,
         ),
         path: path,
       );
-      setState(() {
-        _isRecording = true;
-      });
+
+      if (!mounted) return;
+      setState(() => _isRecording = true);
+    } catch (e) {
+      _showSnackBar('Не удалось начать запись: $e');
     }
   }
 
   Future<void> _stopRecording() async {
-    final path = await _record.stop();
-    setState(() {
-      _isRecording = false;
-    });
+    try {
+      final path = await _record.stop();
+      if (!mounted) return;
 
-    if (path != null) {
       setState(() {
-        _audioPaths.add(path);
+        _isRecording = false;
+        if (path != null) {
+          _audioPaths.add(path);
+          _audioTitles.add('Аудио заметка');
+        }
       });
+      _refreshHasChanges();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isRecording = false);
+      }
+      _showSnackBar('Не удалось остановить запись: $e');
     }
   }
 
-  void _removeAudioPath(String path, int index) async {
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecording();
+    } else {
+      await _startRecording();
+    }
+  }
+
+  Future<void> _removeAudioPath(String path, int index) async {
     setState(() {
       _audioPaths.removeAt(index);
       if (_audioTitles.length > index) {
         _audioTitles.removeAt(index);
       }
     });
+    _refreshHasChanges();
 
     final file = File(path);
     if (await file.exists()) {
@@ -169,785 +489,20 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     }
   }
 
-  Future<bool> _showUnsavedChangesDialog() async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        title: const Text(
-          'Выберите вариант',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
-        actions: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16.0,
-                      horizontal: 25.0,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    side: BorderSide(color: Colors.green, width: 2),
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                  child: Text(
-                    "Отмена",
-                    style: TextStyle(
-                      color: Colors.green,
-                      fontFamily: 'Oswald',
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 5),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16.0,
-                      horizontal: 25.0,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    backgroundColor: Colors.brown,
-                  ),
-                  onPressed: () {
-                    // TODO fix this
-                    // widget.noteProvider.addToArchive(widget.note);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Заметка перемещена в архив',
-                          style: TextStyle(fontFamily: 'Oswald'),
-                        ),
-                      ),
-                    );
-                  },
-                  child: Text(
-                    "Архивировать",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontFamily: 'Oswald',
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 5),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16.0,
-                      horizontal: 25.0,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    backgroundColor: Colors.yellow,
-                  ),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    showModalBottomSheet(
-                      context: context,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(16),
-                        ),
-                      ),
-                      builder: (context) => Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: Colors.grey[400],
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Flexible(
-                            child: SizedBox(
-                              height: MediaQuery.of(context).size.height * 0.5,
-                              child: ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: folders.length,
-                                itemBuilder: (context, index) {
-                                  final folder = folders[index];
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16.0,
-                                    ),
-                                    child: ListTile(
-                                      leading: Container(
-                                        width: 24,
-                                        height: 24,
-                                        decoration: BoxDecoration(
-                                          color: Color(folder.colorValue),
-                                          border: Border.all(
-                                            color: Colors.white,
-                                            width: 2,
-                                          ),
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      title: Text(
-                                        folder.title,
-                                        style: TextStyle(fontFamily: 'Oswald'),
-                                      ),
-                                      onTap: () {
-                                        // TODO
-                                        // noteProvider.addNoteToFolder(
-                                        //   widget.note,
-                                        //   folder,
-                                        // );
-                                        Navigator.pop(context);
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Заметка перемещена в папку ${folder.title}',
-                                              style: TextStyle(
-                                                fontFamily: 'Oswald',
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  child: Text(
-                    "Добавить в папку",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontFamily: 'Oswald',
-                      color: Colors.black,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 5),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 16.0,
-                      horizontal: 25.0,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    backgroundColor: Colors.red,
-                  ),
-                  onPressed: () {
-                    // TODO
-                    // widget.noteProvider.moveNoteToTrash(widget.note);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Заметка перемещена в корзину',
-                          style: TextStyle(fontFamily: 'Oswald'),
-                        ),
-                      ),
-                    );
-                  },
-                  child: Text(
-                    "Удалить",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontFamily: 'Oswald',
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-    // final result = await showDialog<bool>(
-    //   context: context,
-    //   barrierDismissible: false,
-    //   builder: (BuildContext context) {
-    //     return AlertDialog(
-    //       title: const Text(
-    //         'Заметка была изменена',
-    //         style: TextStyle(fontFamily: 'Oswald'),
-    //       ),
-    //       content: const Text(
-    //         'Выберите опцию:',
-    //         style: TextStyle(fontFamily: 'Oswald'),
-    //       ),
-    //       actions: <Widget>[
-    //         TextButton(
-    //           child: const Text(
-    //             'Не сохранять',
-    //             style: TextStyle(
-    //               fontFamily: 'Oswald',
-    //               color: Colors.red,
-    //             ),
-    //           ),
-    //           onPressed: () {
-    //             // Navigator.of(context).pop();
-    //             Navigator.of(context).pop();
-    //           },
-    //         ),
-    //         TextButton(
-    //           child: const Text(
-    //             'Сохранить',
-    //             style: TextStyle(
-    //               fontFamily: 'Oswald',
-    //               color: Colors.green,
-    //             ),
-    //           ),
-    //           onPressed: () {
-    //             Navigator.of(context).pop(false);
-    //             _saveNoteAndPop();
-    //           },
-    //         ),
-    //         TextButton(
-    //           child: const Text(
-    //             'Отмена',
-    //             style: TextStyle(
-    //               fontFamily: 'Oswald',
-    //               color: Colors.grey,
-    //             ),
-    //           ),
-    //           onPressed: () {
-    //             Navigator.of(context).pop(null);
-    //           },
-    //         ),
-    //       ],
-    //     );
-    //   },
-    // );
-
-    return result ?? false;
-  }
-
-  void _saveNoteAndPop() {
-    _saveNote();
-  }
-
-  Future<void> _onWillPop() async {
-    if (_hasChanges) {
-      final shouldExit = await _showUnsavedChangesDialog();
-      if (shouldExit == true) {
-        if (mounted) {
-          Navigator.pop(context);
-        }
-      } else if (shouldExit == false) {
-        _saveNoteAndPop();
+  void _updateAudioTitle(int index, String newTitle) {
+    setState(() {
+      if (_audioTitles.length <= index) {
+        _audioTitles.addAll(
+          List.filled(index - _audioTitles.length + 1, 'Аудио заметка'),
+        );
       }
-    } else {
-      if (mounted) {
-        Navigator.pop(context);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          onPressed: _onWillPop,
-          icon: Icon(FluentIcons.edit_arrow_back_24_regular),
-        ),
-        // actions: [
-        //   IconButton(
-        //     onPressed: () {},
-        //     icon: Icon(FluentIcons.options_24_regular),
-        //   ),
-        //   IconButton(
-        //     onPressed: () {},
-        //     icon: Icon(FluentIcons.more_vertical_24_regular),
-        //   ),
-        // ],
-      ),
-      body: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              // color: _backgroundColor,
-              image: _selectedImage != null
-                  ? DecorationImage(
-                      image: FileImage(_selectedImage!),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
-            ),
-          ),
-          // Container(color: Colors.black.withValues(alpha: 0.1)),
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                Theme(
-                  data: Theme.of(context).copyWith(
-                    textSelectionTheme: TextSelectionThemeData(
-                      selectionColor: Colors.yellow.withValues(alpha: 0.3),
-                      selectionHandleColor: Colors.yellow,
-                    ),
-                  ),
-                  child: TextField(
-                    controller: _titleController,
-                    maxLines: null,
-                    cursorColor: Colors.yellow,
-                    decoration: InputDecoration(
-                      hint: Text(
-                        "Введи название :>",
-                        style: TextStyle(fontFamily: 'Oswald', fontSize: 25),
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(16),
-                    ),
-                    style: const TextStyle(
-                      fontSize: 25,
-                      fontFamily: 'Jura',
-                      fontFamilyFallback: ['Apple'],
-                    ),
-                  ),
-                ),
-                Theme(
-                  data: Theme.of(context).copyWith(
-                    textSelectionTheme: TextSelectionThemeData(
-                      selectionColor: Colors.yellow.withValues(alpha: 0.3),
-                      selectionHandleColor: Colors.yellow,
-                    ),
-                  ),
-                  child: TextField(
-                    controller: _contentController,
-                    maxLines: null,
-                    cursorColor: Colors.yellow,
-                    decoration: InputDecoration(
-                      hint: Text(
-                        "Введи заметку ^_^",
-                        style: TextStyle(fontSize: 18, fontFamily: 'Oswald'),
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.all(18),
-                    ),
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontFamily: 'Jura',
-                      fontFamilyFallback: ['Apple'],
-                    ),
-                  ),
-                ),
-                if (_audioPaths.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      children: List.generate(
-                        _audioPaths.length,
-                        (index) => _buildAudioWidget(_audioPaths[index], index),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _saveNote,
-        // onPressed: () async {
-        //   final note = SaveNote(
-        //     title: _titleController.text,
-        //     content: _contentController.text,
-        //     folderId: widget.folderId,
-        //     backgroundImagePath: _selectedImage?.path,
-        //     textColorValue: _textColor.toARGB32(),
-        //     backgroundColorValue: _backgroundColor.toARGB32(),
-        //     audioNotes: _audioPaths,
-        //     audioTitles: _audioTitles,
-        //   );
-        //
-        //   if (widget.note != null) {
-        //     widget.note!
-        //       ..title = _titleController.text
-        //       ..content = _contentController.text
-        //       ..folderId = widget.folderId ?? widget.note!.folderId
-        //       ..backgroundImagePath = _selectedImage?.path
-        //       ..textColorValue = _textColor.toARGB32()
-        //       ..backgroundColorValue = _backgroundColor.toARGB32()
-        //       ..audioNotes = note.audioNotes
-        //       ..audioTitles = note.audioTitles;
-        //
-        //     await widget.note!.save();
-        //     Navigator.pop(context, widget.note);
-        //   } else {
-        //     Navigator.pop(context, note);
-        //   }
-        // },
-        backgroundColor: Colors.yellow,
-        shape: CircleBorder(),
-        child: Icon(FluentIcons.save_24_regular, color: Colors.black),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
-      bottomNavigationBar: BottomAppBar(
-        shape: CircularNotchedRectangle(),
-        color: Colors.yellow,
-        child: Row(
-          children: <Widget>[
-            IconButton(
-              icon: const Icon(
-                FluentIcons.color_24_regular,
-                color: Colors.black,
-              ),
-              onPressed: () => _showBackgroundColorDialog(context),
-            ),
-            IconButton(
-              icon: const Icon(
-                FluentIcons.text_16_regular,
-                color: Colors.black,
-              ),
-              onPressed: () => _showTextColorDialog(context),
-            ),
-            IconButton(
-              icon: const Icon(
-                FluentIcons.image_24_regular,
-                color: Colors.black,
-              ),
-              onPressed: () => _pickImage(ImageSource.gallery),
-            ),
-            IconButton(
-              icon: const Icon(
-                FluentIcons.arrow_reset_24_regular,
-                color: Colors.black,
-              ),
-              onPressed: () => _showRestoreDialog(context),
-            ),
-            if (Platform.isAndroid || Platform.isIOS)
-              IconButton(
-                icon: Icon(
-                  _isRecording
-                      ? FluentIcons.stop_24_regular
-                      : FluentIcons.mic_24_regular,
-                  color: Colors.black,
-                ),
-                onPressed: () {},
-                // onPressed: () async {
-                //   if (Platform.isWindows) {
-                //     ScaffoldMessenger.of(context).showSnackBar(
-                //       SnackBar(
-                //         content: const Text(
-                //           'Аудиозаметки не поддерживаются на виндовс',
-                //           style: TextStyle(fontFamily: 'Oswald'),
-                //         ),
-                //       ),
-                //     );
-                //     return;
-                //   }
-                //   if (_isRecording) {
-                //     await _stopRecording();
-                //   } else {
-                //     await _startRecording();
-                //   }
-                // },
-              ),
-            // IconButton(
-            //   icon: const Icon(
-            //     FluentIcons.attach_24_regular,
-            //     color: Colors.black,
-            //   ),
-            //   onPressed: () {},
-            // ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _saveNote() async {
-    final note = SaveNote(
-      title: _titleController.text,
-      content: _contentController.text,
-      folderId: widget.folderId,
-      backgroundImagePath: _selectedImage?.path,
-      textColorValue: _textColor.toARGB32(),
-      backgroundColorValue: _backgroundColor.toARGB32(),
-      audioNotes: _audioPaths,
-      audioTitles: _audioTitles,
-    );
-
-    if (widget.note != null) {
-      widget.note!
-        ..title = _titleController.text
-        ..content = _contentController.text
-        ..folderId = widget.folderId ?? widget.note!.folderId
-        ..backgroundImagePath = _selectedImage?.path
-        ..textColorValue = _textColor.toARGB32()
-        ..backgroundColorValue = _backgroundColor.toARGB32()
-        ..audioNotes = note.audioNotes
-        ..audioTitles = note.audioTitles;
-
-      await widget.note!.save();
-      if (mounted) {
-        Navigator.pop(context, widget.note);
-      }
-    } else {
-      Navigator.pop(context, note);
-    }
-  }
-
-  void _showRestoreDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text(
-          'Вы точно хотите вернуть задний фон по умолчанию?',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.red, width: 2),
-              ),
-              // backgroundColor: Colors.red,
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Отмена",
-              style: TextStyle(
-                color: Colors.red,
-                fontFamily: 'Oswald',
-                fontSize: 18,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.green, width: 2),
-              ),
-              backgroundColor: Colors.green,
-            ),
-            onPressed: () {
-              setState(() {
-                _selectedImage = null;
-                widget.note?.backgroundImagePath = null;
-              });
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Восстановить",
-              style: TextStyle(
-                fontSize: 18,
-                fontFamily: 'Oswald',
-                color: Colors.black,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showBackgroundColorDialog(BuildContext context) {
-    Color tempColor = _backgroundColor;
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text(
-          'Выберите цвет для заднего фона',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerAreaBorderRadius: BorderRadius.circular(10),
-            pickerColor: tempColor,
-            onColorChanged: (Color color) {
-              tempColor = color;
-            },
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              side: BorderSide(color: Colors.yellow[600]!, width: 2),
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Отмена",
-              style: TextStyle(
-                color: themeProvider.isDark
-                    ? Colors.yellow[600]!
-                    : Colors.black,
-                fontFamily: 'Oswald',
-                fontSize: 18,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              backgroundColor: Colors.yellow,
-            ),
-            onPressed: () {
-              setState(() {
-                _backgroundColor = tempColor;
-              });
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Выбрать",
-              style: TextStyle(
-                fontSize: 18,
-                fontFamily: 'Oswald',
-                color: Colors.black,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showTextColorDialog(BuildContext context) {
-    Color tempColor = _textColor;
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text(
-          'Выберите цвет для текста',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerAreaBorderRadius: BorderRadius.circular(10),
-            pickerColor: tempColor,
-            onColorChanged: (Color color) {
-              tempColor = color;
-            },
-          ),
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              side: BorderSide(color: Colors.yellow[600]!, width: 2),
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Отмена",
-              style: TextStyle(
-                color: themeProvider.isDark
-                    ? Colors.yellow[600]!
-                    : Colors.black,
-                fontFamily: 'Oswald',
-                fontSize: 18,
-              ),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              backgroundColor: Colors.yellow,
-            ),
-            onPressed: () {
-              setState(() {
-                _textColor = tempColor;
-              });
-              Navigator.pop(context);
-            },
-            child: Text(
-              "Выбрать",
-              style: TextStyle(
-                fontSize: 18,
-                fontFamily: 'Oswald',
-                color: Colors.black,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+      _audioTitles[index] = newTitle;
+    });
+    _refreshHasChanges();
   }
 
   Widget _buildAudioWidget(String path, int index) {
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final themeProvider = context.watch<ThemeProvider>();
 
     return AudioPlayerWidget(
       filePath: path,
@@ -960,14 +515,737 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     );
   }
 
-  void _updateAudioTitle(int index, String newTitle) {
-    setState(() {
-      if (_audioTitles.length <= index) {
-        _audioTitles.addAll(
-          List.filled(index - _audioTitles.length + 1, 'Аудио заметка'),
+  // ============================ Вложения ============================
+
+  Future<void> _pickAttachments() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        dialogTitle: 'Добавить файлы к заметке',
+      );
+
+      if (files.isEmpty) return;
+
+      final dir = await getApplicationSupportDirectory();
+      final attachmentsDir = Directory(p.join(dir.path, 'attachments'));
+      await attachmentsDir.create(recursive: true);
+
+      final addedPaths = <String>[];
+      for (var i = 0; i < files.length; i++) {
+        final file = files[i];
+        final fileName = p.basename(file.name);
+        final destination = p.join(
+          attachmentsDir.path,
+          '${DateTime.now().microsecondsSinceEpoch}_${i}_$fileName',
         );
+
+        final sourcePath = file.path;
+        if (sourcePath != null) {
+          await File(sourcePath).copy(destination);
+        } else {
+          final bytes = await file.readAsBytes();
+          await File(destination).writeAsBytes(bytes, flush: true);
+        }
+
+        addedPaths.add(destination);
       }
-      _audioTitles[index] = newTitle;
+
+      if (!mounted) return;
+      setState(() => _attachments.addAll(addedPaths));
+      _refreshHasChanges();
+    } catch (e) {
+      _showSnackBar('Не удалось добавить файлы: $e');
+    }
+  }
+
+  Future<void> _openAttachment(String path) async {
+    final result = await OpenFilex.open(path);
+    if (result.type != ResultType.done) {
+      _showSnackBar('Не удалось открыть файл: ${result.message}');
+    }
+  }
+
+  Future<void> _removeAttachment(int index) async {
+    final path = _attachments[index];
+    setState(() => _attachments.removeAt(index));
+    _refreshHasChanges();
+
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  Widget _buildAttachmentWidget(String path, int index) {
+    final extension = p.extension(path).replaceFirst('.', '').toUpperCase();
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: ListTile(
+        leading: const Icon(FluentIcons.document_24_regular),
+        title: Text(
+          p.basename(path),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontFamily: 'Oswald', fontSize: 16),
+        ),
+        subtitle: Text(
+          extension.isEmpty ? 'Файл' : extension,
+          style: const TextStyle(fontFamily: 'Oswald', fontSize: 12),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: 'Открыть',
+              onPressed: () => _openAttachment(path),
+              icon: const Icon(FluentIcons.open_24_regular),
+            ),
+            IconButton(
+              tooltip: 'Удалить',
+              onPressed: () => _removeAttachment(index),
+              icon: const Icon(FluentIcons.delete_24_regular),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================ Options dialog ============================
+
+  Future<void> _showOptionsDialog() async {
+    final action = await showDialog<OptionAction>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 24,
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Дополнительные опции',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // const SizedBox(height: 12),
+                // const Divider(),
+                ListTile(
+                  // contentPadding: EdgeInsets.zero,
+                  leading: const Icon(FluentIcons.copy_24_regular),
+                  title: const Text(
+                    'Копировать текст',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  subtitle: const Text(
+                    'Название и содержимое заметки',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _copyNoteText();
+                  },
+                ),
+                ListTile(
+                  // contentPadding: EdgeInsets.zero,
+                  leading: const Icon(FluentIcons.save_24_regular),
+                  title: const Text(
+                    'Экспортировать в .txt',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  subtitle: const Text(
+                    'Сохранить заметку как текстовый файл',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _exportNoteAsText();
+                  },
+                ),
+                ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  // contentPadding: EdgeInsets.zero,
+                  leading: const Icon(FluentIcons.folder_24_regular),
+                  title: const Text(
+                    'Переместить в папку',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  subtitle: const Text(
+                    'Выбрать папку для заметки',
+                    style: TextStyle(fontFamily: 'Oswald'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _showMoveToFolderDialog();
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: _dialogActionButton(
+                label: 'Отмена',
+                backgroundColor: const Color(0xFF64748B),
+                onPressed: () =>
+                    Navigator.pop(dialogContext, OptionAction.cancel),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    switch (action) {
+      case OptionAction.save:
+        await _saveNote(exit: false);
+        break;
+      case OptionAction.saveAndExit:
+        await _saveNote(exit: true);
+        break;
+      case OptionAction.cancel:
+      case null:
+        break;
+    }
+  }
+
+  String _noteAsPlainText() {
+    final title = _titleController.text;
+    final content = _contentController.text;
+    return [title, content].where((part) => part.isNotEmpty).join('\n\n');
+  }
+
+  Future<void> _copyNoteText() async {
+    final text = _noteAsPlainText();
+    if (text.trim().isEmpty) {
+      _showSnackBar('В заметке нет текста');
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: text));
+    _showSnackBar('Текст скопирован');
+  }
+
+  Future<void> _exportNoteAsText() async {
+    try {
+      final text = _noteAsPlainText();
+      final rawTitle = _titleController.text.trim();
+      final fileName = rawTitle.isEmpty ? _defaultNoteTitle : rawTitle;
+      final safeFileName = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+
+      final uri = await FilePicker.saveFile(
+        dialogTitle: 'Экспортировать заметку',
+        fileName: '$safeFileName.txt',
+        bytes: Uint8List.fromList(utf8.encode(text)),
+        mimeType: 'text/plain',
+      );
+
+      if (uri != null) {
+        _showSnackBar('Заметка экспортирована');
+      }
+    } catch (e) {
+      _showSnackBar('Не удалось экспортировать заметку: $e');
+    }
+  }
+
+  Future<void> _showMoveToFolderDialog() async {
+    final folders = context.read<NoteProvider>().folders;
+
+    if (folders.isEmpty) {
+      _showSnackBar('Сначала создайте папку');
+      return;
+    }
+
+    final selected = await showDialog<Object?>(
+      context: context,
+      builder: (dialogContext) {
+        return SimpleDialog(
+          title: const Text(
+            'Переместить в папку',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, 'no_folder'),
+              child: const Text(
+                'Без папки',
+                style: TextStyle(fontFamily: 'Oswald'),
+              ),
+            ),
+            ...folders.map(
+              (folder) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, folder.key),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: Color(folder.colorValue),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        folder.title,
+                        style: const TextStyle(fontFamily: 'Oswald'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || selected == null) return;
+
+    setState(() {
+      _folderId = selected is int ? selected : null;
     });
+    _refreshHasChanges();
+    _showSnackBar(
+      _folderId == null
+          ? 'Заметка будет сохранена без папки'
+          : 'Папка выбрана. Сохраните заметку',
+    );
+  }
+
+  // ============================ Диалоги оформления ============================
+
+  void _showRestoreDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final theme = Theme.of(context);
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Вы точно хотите вернуть задний фон по умолчанию?',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                foregroundColor: theme.colorScheme.onSurface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Отмена',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: const Color(0xFF16A34A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                setState(() => _selectedImage = null);
+                _refreshHasChanges();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text(
+                'Восстановить',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showBackgroundColorDialog(BuildContext context) {
+    Color tempColor = _backgroundColor ?? _defaultBackgroundColor;
+    final themeProvider = context.read<ThemeProvider>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final theme = Theme.of(context);
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Выберите цвет для заднего фона',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerAreaBorderRadius: BorderRadius.circular(10),
+              pickerColor: tempColor,
+              onColorChanged: (Color color) {
+                tempColor = color;
+              },
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                foregroundColor: theme.colorScheme.onSurface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Отмена',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: themeProvider.primaryColor,
+                foregroundColor: themeProvider.onPrimaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                setState(() {
+                  _backgroundColor = tempColor;
+                  _hasCustomBackground = true;
+                });
+                _refreshHasChanges();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text(
+                'Выбрать',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showTextColorDialog(BuildContext context) {
+    Color tempColor = _textColor ?? _defaultTextColor;
+    final themeProvider = context.read<ThemeProvider>();
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        final theme = Theme.of(context);
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: const Text(
+            'Выберите цвет для текста',
+            style: TextStyle(fontFamily: 'Oswald'),
+          ),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerAreaBorderRadius: BorderRadius.circular(10),
+              pickerColor: tempColor,
+              onColorChanged: (Color color) {
+                tempColor = color;
+              },
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                foregroundColor: theme.colorScheme.onSurface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Отмена',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14.0,
+                  horizontal: 20.0,
+                ),
+                backgroundColor: themeProvider.primaryColor,
+                foregroundColor: themeProvider.onPrimaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                setState(() {
+                  _textColor = tempColor;
+                  _hasCustomTextColor = true;
+                });
+                _refreshHasChanges();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text(
+                'Выбрать',
+                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ============================ UI ============================
+
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final theme = Theme.of(context);
+    final primaryColor = themeProvider.primaryColor;
+    final onPrimaryColor = themeProvider.onPrimaryColor;
+    final effectiveBackgroundColor = _hasCustomBackground
+        ? (_backgroundColor ?? theme.scaffoldBackgroundColor)
+        : theme.scaffoldBackgroundColor;
+    final defaultTextColor =
+        _hasCustomBackground &&
+            effectiveBackgroundColor.computeLuminance() > 0.5
+        ? Colors.black
+        : theme.colorScheme.onSurface;
+    final effectiveTextColor = _hasCustomTextColor
+        ? (_textColor ?? defaultTextColor)
+        : defaultTextColor;
+    final textSelectionTheme = TextSelectionThemeData(
+      selectionColor: primaryColor.withValues(alpha: 0.3),
+      selectionHandleColor: primaryColor,
+    );
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          _handleExit();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            onPressed: _handleExit,
+            icon: const Icon(FluentIcons.edit_arrow_back_24_regular),
+          ),
+          actions: [
+            IconButton(
+              onPressed: _showOptionsDialog,
+              icon: const Icon(FluentIcons.options_24_regular),
+            ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: _selectedImage == null ? effectiveBackgroundColor : null,
+                image: _selectedImage != null
+                    ? DecorationImage(
+                        image: FileImage(_selectedImage!),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+              ),
+            ),
+            SingleChildScrollView(
+              child: Column(
+                children: [
+                  Theme(
+                    data: theme.copyWith(
+                      textSelectionTheme: textSelectionTheme,
+                    ),
+                    child: TextField(
+                      controller: _titleController,
+                      maxLines: null,
+                      cursorColor: primaryColor,
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontFamily: 'Jura',
+                        fontFamilyFallback: const ['Apple'],
+                        color: effectiveTextColor,
+                      ),
+                      decoration: InputDecoration(
+                        hint: Text(
+                          'Введи название :>',
+                          style: TextStyle(
+                            fontFamily: 'Oswald',
+                            fontSize: 25,
+                            color: effectiveTextColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(16),
+                      ),
+                    ),
+                  ),
+                  if (_audioPaths.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        children: List.generate(
+                          _audioPaths.length,
+                          (index) =>
+                              _buildAudioWidget(_audioPaths[index], index),
+                        ),
+                      ),
+                    ),
+                  if (_attachments.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        children: List.generate(
+                          _attachments.length,
+                          (index) => _buildAttachmentWidget(
+                            _attachments[index],
+                            index,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Theme(
+                    data: theme.copyWith(
+                      textSelectionTheme: textSelectionTheme,
+                    ),
+                    child: TextField(
+                      controller: _contentController,
+                      maxLines: null,
+                      cursorColor: primaryColor,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontFamily: 'Jura',
+                        fontFamilyFallback: const ['Apple'],
+                        color: effectiveTextColor,
+                      ),
+                      decoration: InputDecoration(
+                        hint: Text(
+                          'Введи заметку ^_^',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontFamily: 'Oswald',
+                            color: effectiveTextColor.withValues(alpha: 0.5),
+                          ),
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(18),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => _saveNote(exit: true),
+          backgroundColor: primaryColor,
+          shape: const CircleBorder(),
+          child: Icon(FluentIcons.save_24_regular, color: onPrimaryColor),
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
+        bottomNavigationBar: BottomAppBar(
+          shape: const CircularNotchedRectangle(),
+          color: primaryColor,
+          child: Row(
+            children: <Widget>[
+              IconButton(
+                tooltip: 'Цвет фона',
+                icon: Icon(FluentIcons.color_24_regular, color: onPrimaryColor),
+                onPressed: () => _showBackgroundColorDialog(context),
+              ),
+              IconButton(
+                tooltip: 'Цвет текста',
+                icon: Icon(FluentIcons.text_16_regular, color: onPrimaryColor),
+                onPressed: () => _showTextColorDialog(context),
+              ),
+              IconButton(
+                tooltip: 'Фоновое изображение',
+                icon: Icon(FluentIcons.image_24_regular, color: onPrimaryColor),
+                onPressed: () => _pickImage(ImageSource.gallery),
+              ),
+              IconButton(
+                tooltip: 'Сбросить фон',
+                icon: Icon(
+                  FluentIcons.arrow_reset_24_regular,
+                  color: onPrimaryColor,
+                ),
+                onPressed: () => _showRestoreDialog(context),
+              ),
+              IconButton(
+                tooltip: _isRecording ? 'Остановить запись' : 'Записать аудио',
+                icon: Icon(
+                  _isRecording
+                      ? FluentIcons.stop_24_regular
+                      : FluentIcons.mic_24_regular,
+                  color: _isRecording ? Colors.red : onPrimaryColor,
+                ),
+                onPressed: _toggleRecording,
+              ),
+              IconButton(
+                tooltip: 'Добавить файлы',
+                icon: Icon(
+                  FluentIcons.attach_24_regular,
+                  color: onPrimaryColor,
+                ),
+                onPressed: _pickAttachments,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

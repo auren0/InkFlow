@@ -2,7 +2,6 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:note_app/shared_preferences/theme_provider.dart';
-import 'package:provider/provider.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
   final String filePath;
@@ -70,24 +69,30 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primaryColor = widget.themeProvider.primaryColor;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(10.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               children: [
                 IconButton(
+                  tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
                   onPressed: () async {
                     if (isPlaying) {
                       await _player.pause();
                     } else {
                       await _player.play(DeviceFileSource(widget.filePath));
                     }
-                    setState(() {
-                      isPlaying = !isPlaying;
-                    });
+                    if (mounted) {
+                      setState(() {
+                        isPlaying = !isPlaying;
+                      });
+                    }
                   },
                   icon: Icon(
                     isPlaying
@@ -95,102 +100,62 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                         : FluentIcons.play_24_regular,
                   ),
                 ),
-                Column(
-                  children: [
-                    Text(
-                      audioTitle ?? 'Аудио заметка',
-                      style: TextStyle(fontSize: 16, fontFamily: 'Oswald'),
+                Expanded(
+                  child: Text(
+                    audioTitle ?? 'Аудио заметка',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontFamily: 'Oswald',
+                      color: theme.colorScheme.onSurface,
                     ),
-                    Slider(
-                      activeColor: Colors.yellow,
-                      thumbColor: Colors.yellow,
-                      value: _position.inSeconds
-                          .clamp(0, _duration.inSeconds)
-                          .toDouble(),
-                      max: _duration.inSeconds.toDouble() > 0
-                          ? _duration.inSeconds.toDouble()
-                          : 1,
-                      onChanged: (value) async {
-                        final pos = Duration(seconds: value.toInt());
-                        await _player.seek(pos);
-                      },
-                    ),
-                    // Column(
-                    //   children: [
-                    //     Slider(
-                    //       // value: _position.inSeconds
-                    //       //     .clamp(0, _duration.inSeconds)
-                    //       //     .toDouble(),
-                    //       value: _position.inMilliseconds
-                    //           .clamp(0, _duration.inMilliseconds)
-                    //           .toDouble(),
-                    //       max: _duration.inSeconds.toDouble() > 0
-                    //           ? _duration.inSeconds.toDouble()
-                    //           : 1,
-                    //       // onChanged: (value) async {
-                    //       //   final pos = Duration(seconds: value.toInt());
-                    //       //   await _player.seek(pos);
-                    //       // },
-                    //       onChanged: (value) {
-                    //         setState(() {
-                    //           _position = Duration(milliseconds: value.toInt());
-                    //         });
-                    //       },
-                    //       onChangeStart: (_) {
-                    //         setState(() {
-                    //           _isSeeking = true;
-                    //         });
-                    //       },
-                    //       onChangeEnd: (value) async {
-                    //         final newPosition = Duration(
-                    //           milliseconds: value.toInt(),
-                    //         );
-
-                    //         await _player.seek(newPosition);
-                    //         setState(() {
-                    //           _isSeeking = false;
-                    //           _position = newPosition;
-                    //         });
-                    //       },
-                    //     ),
-                    //     // const SizedBox(height: 5),
-                    //     Row(
-                    //       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    //       children: [
-                    //         Text(
-                    //           _formatDuration(_position),
-                    //           style: TextStyle(
-                    //             fontSize: 12,
-                    //             color: Colors.grey[600],
-                    //             fontFamily: 'Oswald',
-                    //           ),
-                    //         ),
-                    //         Text(
-                    //           _formatDuration(_duration),
-                    //           style: TextStyle(
-                    //             fontSize: 12,
-                    //             color: Colors.grey[600],
-                    //             fontFamily: 'Oswald',
-                    //           ),
-                    //         ),
-                    //       ],
-                    //     ),
-                    //   ],
-                    // ),
-                  ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Переименовать',
+                  onPressed: () => _showRenameDialog(context),
+                  icon: const Icon(FluentIcons.edit_24_regular),
+                ),
+                IconButton(
+                  tooltip: 'Удалить',
+                  onPressed: widget.onDelete,
+                  icon: const Icon(FluentIcons.delete_off_24_regular),
                 ),
               ],
             ),
+            Slider(
+              activeColor: primaryColor,
+              thumbColor: primaryColor,
+              value: _position.inSeconds
+                  .clamp(0, _duration.inSeconds)
+                  .toDouble(),
+              max: _duration.inSeconds.toDouble() > 0
+                  ? _duration.inSeconds.toDouble()
+                  : 1,
+              onChanged: (value) async {
+                final pos = Duration(seconds: value.toInt());
+                await _player.seek(pos);
+              },
+            ),
             Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                IconButton(
-                  onPressed: () => _showRenameDialog(context),
-                  icon: Icon(FluentIcons.edit_24_regular),
+                Text(
+                  _formatDuration(_position),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontFamily: 'Oswald',
+                  ),
                 ),
-                IconButton(
-                  onPressed: widget.onDelete,
-                  icon: Icon(FluentIcons.delete_off_24_regular),
+                Text(
+                  _formatDuration(_duration),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontFamily: 'Oswald',
+                  ),
                 ),
               ],
             ),
@@ -200,13 +165,23 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     );
   }
 
+  String _formatDuration(Duration duration) {
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
   void _showRenameDialog(BuildContext context) {
     _editController.text = audioTitle ?? 'Аудио заметка';
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final theme = Theme.of(context);
+    final primaryColor = widget.themeProvider.primaryColor;
+    final onPrimaryColor = widget.themeProvider.onPrimaryColor;
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text(
           'Переименовать аудио заметку',
           style: TextStyle(fontFamily: 'Oswald'),
@@ -214,24 +189,25 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         content: Theme(
           data: Theme.of(context).copyWith(
             textSelectionTheme: TextSelectionThemeData(
-              selectionColor: Colors.yellow.withValues(alpha: 0.3),
-              selectionHandleColor: Colors.yellow,
+              selectionColor: primaryColor.withValues(alpha: 0.3),
+              selectionHandleColor: primaryColor,
             ),
           ),
           child: TextField(
-            style: TextStyle(fontFamily: 'Oswald'),
+            style: const TextStyle(fontFamily: 'Oswald'),
             controller: _editController,
-            cursorColor: Colors.yellow,
+            cursorColor: primaryColor,
             decoration: InputDecoration(
               floatingLabelStyle: TextStyle(
                 fontFamily: 'Oswald',
-                color: themeProvider.isDark ? Colors.yellow : Colors.black,
+                color: widget.themeProvider.isDark
+                    ? primaryColor
+                    : Colors.black,
               ),
               focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.yellow, width: 2),
-                // borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: primaryColor, width: 2),
               ),
-              focusColor: Colors.yellow,
+              focusColor: primaryColor,
               label: const Text(
                 'Название',
                 style: TextStyle(fontFamily: 'Oswald'),
@@ -240,7 +216,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 'Введите название',
                 style: TextStyle(fontFamily: 'Oswald'),
               ),
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
             ),
           ),
         ),
@@ -248,39 +224,34 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
+                vertical: 14.0,
+                horizontal: 20.0,
               ),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              foregroundColor: theme.colorScheme.onSurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.yellow, width: 2),
               ),
             ),
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
             },
-            child: Text(
+            child: const Text(
               "Отмена",
-              style: TextStyle(
-                color: widget.themeProvider.isDark
-                    ? Colors.yellow
-                    : Colors.black,
-                fontFamily: 'Oswald',
-                fontSize: 18,
-              ),
+              style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
             ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(
-                vertical: 16.0,
-                horizontal: 25.0,
+                vertical: 14.0,
+                horizontal: 20.0,
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
-                side: BorderSide(color: Colors.yellow, width: 2),
               ),
-              backgroundColor: Colors.yellow,
+              backgroundColor: primaryColor,
+              foregroundColor: onPrimaryColor,
             ),
             onPressed: () {
               final newTitle = _editController.text.isNotEmpty
@@ -290,26 +261,19 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               setState(() {
                 audioTitle = newTitle;
               });
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
             },
             child: Text(
               "Переименовать",
               style: TextStyle(
                 fontSize: 18,
                 fontFamily: 'Oswald',
-                color: Colors.black,
+                color: onPrimaryColor,
               ),
             ),
           ),
         ],
       ),
     );
-  }
-
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(duration.inMinutes.remainder(60));
-    final seconds = twoDigits(duration.inSeconds.remainder(60));
-    return '$minutes:$seconds';
   }
 }

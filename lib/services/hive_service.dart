@@ -1,10 +1,31 @@
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:note_app/hive_models/save_folder.dart';
 import 'package:note_app/hive_models/save_note.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'package:path/path.dart' as p;
 
 class HiveService {
   static Future<void> init() async {
-    await Hive.initFlutter();
+    final String databasePath;
+
+    if (Platform.isAndroid || Platform.isIOS) {
+      // На мобильных устройствах документы пользователя (Documents) недоступны
+      // для прямой записи. Храним базу во внутреннем каталоге приложения.
+      final appSupportDirectory = await getApplicationSupportDirectory();
+      databasePath = p.join(appSupportDirectory.path, 'database');
+    } else {
+      // На десктопе оставляем базу рядом с исполняемым файлом.
+      final exeDirectory = File(Platform.resolvedExecutable).parent.path;
+      databasePath = p.join(exeDirectory, 'database');
+    }
+
+    await Directory(databasePath).create(recursive: true);
+
+    Hive.init(databasePath);
+
     Hive.registerAdapter(SaveNoteAdapter());
     Hive.registerAdapter(SaveFolderAdapter());
 

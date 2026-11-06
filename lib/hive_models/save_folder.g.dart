@@ -16,10 +16,7 @@ class SaveFolderAdapter extends TypeAdapter<SaveFolder> {
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
-    return SaveFolder(
-      title: fields[0] as String,
-      colorValue: fields[1] as int,
-    );
+    return SaveFolder(title: fields[0] as String, colorValue: fields[1] as int);
   }
 
   @override

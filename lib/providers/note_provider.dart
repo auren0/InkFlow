@@ -22,15 +22,30 @@ class NoteProvider with ChangeNotifier {
   List<SaveFolder> get folders => _foldersBox.values.toList();
 
   // ============== Notes Methods ==============
-  void addNote(SaveNote note) async {
+  Future<void> addNote(SaveNote note) async {
     await _notesBox.add(note);
     notifyListeners();
   }
 
-  void updateNote(SaveNote oldNote, SaveNote newNote) async {
-    oldNote.title = newNote.title;
-    oldNote.content = newNote.content;
+  Future<void> updateNote(SaveNote oldNote, SaveNote newNote) async {
+    oldNote
+      ..title = newNote.title
+      ..content = newNote.content
+      ..folderId = newNote.folderId
+      ..backgroundImagePath = newNote.backgroundImagePath
+      ..textColorValue = newNote.textColorValue
+      ..backgroundColorValue = newNote.backgroundColorValue
+      ..audioNotes = newNote.audioNotes
+      ..audioTitles = newNote.audioTitles
+      ..attachments = newNote.attachments
+      ..hasCustomBackground = newNote.hasCustomBackground
+      ..hasCustomTextColor = newNote.hasCustomTextColor;
     await oldNote.save();
+    notifyListeners();
+  }
+
+  Future<void> saveNoteChanges(SaveNote note) async {
+    await note.save();
     notifyListeners();
   }
 
@@ -48,6 +63,11 @@ class NoteProvider with ChangeNotifier {
       backgroundImagePath: note.backgroundImagePath,
       backgroundColorValue: note.backgroundColorValue,
       textColorValue: note.textColorValue,
+      audioNotes: note.audioNotes?.toList(),
+      audioTitles: note.audioTitles?.toList(),
+      attachments: note.attachments?.toList(),
+      hasCustomBackground: note.hasCustomBackground,
+      hasCustomTextColor: note.hasCustomTextColor,
     );
     await to.add(newNote);
     await note.delete();
@@ -117,12 +137,17 @@ class NoteProvider with ChangeNotifier {
   // }
 
   // ============== Folders Methods ==============
-  void addFolder(SaveFolder folder) async {
+  Future<void> addFolder(SaveFolder folder) async {
     await _foldersBox.add(folder);
     notifyListeners();
   }
 
-  void deleteFolder(SaveFolder folder) async {
+  Future<void> saveFolderChanges(SaveFolder folder) async {
+    await folder.save();
+    notifyListeners();
+  }
+
+  Future<void> deleteFolder(SaveFolder folder) async {
     await folder.delete();
     notifyListeners();
   }
