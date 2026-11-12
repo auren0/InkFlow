@@ -33,34 +33,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(fontFamily: 'Oswald'),
               ),
             )
-          : Padding(
-              padding: const EdgeInsets.all(8.0),
-              // child: GridView.builder(
-              //   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              //     crossAxisCount: 2,
-              //     crossAxisSpacing: 5,
-              //     mainAxisSpacing: 5,
-              //     childAspectRatio: 1,
-              //   ),
-              //   itemCount: notes.length,
-              //   itemBuilder: (context, index) {
-              //     final note = notes[index];
-              //     return NoteCard(note: note, noteProvider: noteProvider);
-              //   },
-              // ),
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 250,
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  childAspectRatio: 1,
-                ),
-                itemCount: notes.length,
-                itemBuilder: (context, index) {
-                  final note = notes[index];
-                  return NoteCard(note: note, noteProvider: noteProvider);
-                },
-              ),
+          : Builder(
+              builder: (context) {
+                // Оставляем место снизу, чтобы последние заметки не перекрывались
+                // кнопкой "Создать заметку".
+                final bottomInset = MediaQuery.of(context).padding.bottom;
+                return GridView.builder(
+                  padding: EdgeInsets.fromLTRB(8, 8, 8, 88 + bottomInset),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 250,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: 1,
+                  ),
+                  itemCount: notes.length,
+                  itemBuilder: (context, index) {
+                    final note = notes[index];
+                    return NoteCard(note: note, noteProvider: noteProvider);
+                  },
+                );
+              },
             ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
@@ -219,6 +211,46 @@ class _NoteCardState extends State<NoteCard> {
                       ),
                     ),
                     const SizedBox(height: 5),
+                    if (widget.note.folderId != null) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 16.0,
+                              horizontal: 25.0,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            backgroundColor: Colors.teal,
+                          ),
+                          onPressed: () {
+                            widget.noteProvider.removeNoteFromFolder(
+                              widget.note,
+                            );
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Заметка перемещена на рабочий стол',
+                                  style: TextStyle(fontFamily: 'Oswald'),
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text(
+                            "Переместить на рабочий стол",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontFamily: 'Oswald',
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                    ],
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -234,9 +266,10 @@ class _NoteCardState extends State<NoteCard> {
                         ),
                         onPressed: () {
                           Navigator.pop(context);
+                          final isInFolder = widget.note.folderId != null;
                           showModalBottomSheet(
                             context: context,
-                            shape: RoundedRectangleBorder(
+                            shape: const RoundedRectangleBorder(
                               borderRadius: BorderRadius.vertical(
                                 top: Radius.circular(16),
                               ),
@@ -258,74 +291,137 @@ class _NoteCardState extends State<NoteCard> {
                                   ),
                                 ),
                                 const SizedBox(height: 10),
-                                Flexible(
-                                  child: SizedBox(
-                                    height:
-                                        MediaQuery.of(context).size.height *
-                                        0.5,
-                                    child: ListView.builder(
-                                      shrinkWrap: true,
-                                      itemCount: folders.length,
-                                      itemBuilder: (context, index) {
-                                        final folder = folders[index];
-                                        return Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16.0,
-                                          ),
-                                          child: ListTile(
-                                            leading: Container(
-                                              width: 24,
-                                              height: 24,
-                                              decoration: BoxDecoration(
-                                                color: Color(folder.colorValue),
-                                                border: Border.all(
-                                                  color: Colors.white,
-                                                  width: 2,
-                                                ),
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                            ),
-                                            title: Text(
-                                              folder.title,
+                                if (isInFolder) ...[
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16.0,
+                                    ),
+                                    child: ListTile(
+                                      leading: const Icon(
+                                        Icons.desktop_windows_outlined,
+                                        color: Colors.teal,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      title: const Text(
+                                        'Убрать из папки (на рабочий стол)',
+                                        style: TextStyle(
+                                          fontFamily: 'Oswald',
+                                          color: Colors.teal,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      onTap: () {
+                                        noteProvider.removeNoteFromFolder(
+                                          widget.note,
+                                        );
+                                        Navigator.pop(context);
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Заметка перемещена на рабочий стол',
                                               style: TextStyle(
                                                 fontFamily: 'Oswald',
                                               ),
                                             ),
-                                            onTap: () {
-                                              noteProvider.addNoteToFolder(
-                                                widget.note,
-                                                folder,
-                                              );
-                                              Navigator.pop(context);
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    'Заметка перемещена в папку ${folder.title}',
-                                                    style: TextStyle(
-                                                      fontFamily: 'Oswald',
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
                                           ),
                                         );
                                       },
                                     ),
                                   ),
-                                ),
+                                  const Divider(indent: 16, endIndent: 16),
+                                ],
+                                if (folders.isEmpty)
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: 24.0,
+                                      horizontal: 16.0,
+                                    ),
+                                    child: Center(
+                                      child: Text(
+                                        'У вас пока нет папок',
+                                        style: TextStyle(
+                                          fontFamily: 'Oswald',
+                                          fontSize: 16,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Flexible(
+                                    child: SizedBox(
+                                      height:
+                                          MediaQuery.of(context).size.height *
+                                          0.5,
+                                      child: ListView.builder(
+                                        shrinkWrap: true,
+                                        itemCount: folders.length,
+                                        itemBuilder: (context, index) {
+                                          final folder = folders[index];
+                                          return Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16.0,
+                                            ),
+                                            child: ListTile(
+                                              leading: Container(
+                                                width: 24,
+                                                height: 24,
+                                                decoration: BoxDecoration(
+                                                  color: Color(folder.colorValue),
+                                                  border: Border.all(
+                                                    color: Colors.white,
+                                                    width: 2,
+                                                  ),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                              ),
+                                              title: Text(
+                                                folder.title,
+                                                style: const TextStyle(
+                                                  fontFamily: 'Oswald',
+                                                ),
+                                              ),
+                                              onTap: () {
+                                                noteProvider.addNoteToFolder(
+                                                  widget.note,
+                                                  folder,
+                                                );
+                                                Navigator.pop(context);
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      'Заметка перемещена в папку ${folder.title}',
+                                                      style: const TextStyle(
+                                                        fontFamily: 'Oswald',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           );
                         },
                         child: Text(
-                          "Добавить в папку",
+                          widget.note.folderId != null
+                              ? "Переместить в папку"
+                              : "Добавить в папку",
                           style: TextStyle(
                             fontSize: 18,
                             fontFamily: 'Oswald',

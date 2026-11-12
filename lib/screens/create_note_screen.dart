@@ -637,6 +637,9 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                 // const SizedBox(height: 12),
                 // const Divider(),
                 ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   // contentPadding: EdgeInsets.zero,
                   leading: const Icon(FluentIcons.copy_24_regular),
                   title: const Text(
@@ -652,7 +655,11 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     _copyNoteText();
                   },
                 ),
+                const SizedBox(height: 5),
                 ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   // contentPadding: EdgeInsets.zero,
                   leading: const Icon(FluentIcons.save_24_regular),
                   title: const Text(
@@ -668,6 +675,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     _exportNoteAsText();
                   },
                 ),
+                const SizedBox(height: 5),
                 ListTile(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -762,11 +770,6 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   Future<void> _showMoveToFolderDialog() async {
     final folders = context.read<NoteProvider>().folders;
 
-    if (folders.isEmpty) {
-      _showSnackBar('Сначала создайте папку');
-      return;
-    }
-
     final selected = await showDialog<Object?>(
       context: context,
       builder: (dialogContext) {
@@ -779,34 +782,46 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
             SimpleDialogOption(
               onPressed: () => Navigator.pop(dialogContext, 'no_folder'),
               child: const Text(
-                'Без папки',
+                'Без папки (на рабочий стол)',
                 style: TextStyle(fontFamily: 'Oswald'),
               ),
             ),
-            ...folders.map(
-              (folder) => SimpleDialogOption(
-                onPressed: () => Navigator.pop(dialogContext, folder.key),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 18,
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: Color(folder.colorValue),
-                        shape: BoxShape.circle,
+            if (folders.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                child: Text(
+                  'У вас пока нет папок',
+                  style: TextStyle(
+                    fontFamily: 'Oswald',
+                    color: Colors.grey,
+                  ),
+                ),
+              )
+            else
+              ...folders.map(
+                (folder) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(dialogContext, folder.key),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Color(folder.colorValue),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        folder.title,
-                        style: const TextStyle(fontFamily: 'Oswald'),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          folder.title,
+                          style: const TextStyle(fontFamily: 'Oswald'),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         );
       },

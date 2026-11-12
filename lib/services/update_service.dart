@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// Информация о доступном обновлении с GitHub Releases.
 class UpdateInfo {
@@ -24,14 +23,21 @@ class UpdateService {
   static const String repository = 'auren0/InkFlow';
   static const String _latestReleaseUrl =
       'https://api.github.com/repos/$repository/releases/latest';
+  static const String _releasesPageUrl =
+      'https://github.com/$repository/releases/latest';
+
+  /// Возвращает текущую версию приложения из `pubspec.yaml`.
+  Future<String> getCurrentVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    return packageInfo.version.trim();
+  }
 
   /// Проверяет последний релиз на GitHub и возвращает его, если версия новее
   /// установленной. На других платформах, кроме Windows, возвращает null.
   Future<UpdateInfo?> checkForUpdate() async {
     if (!Platform.isWindows) return null;
 
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersion = packageInfo.version.trim();
+    final currentVersion = await getCurrentVersion();
 
     final response = await http
         .get(
@@ -69,86 +75,60 @@ class UpdateService {
       orElse: () => const <String, dynamic>{},
     );
 
-    final downloadUrl = installer['browser_download_url'] as String?;
-    if (downloadUrl == null || downloadUrl.isEmpty) {
-      throw Exception('В последнем релизе нет установщика .exe');
-    }
+    final releasePageUrl = (data['html_url'] as String? ?? '').trim();
+    final downloadUrl = (installer['browser_download_url'] as String? ?? '')
+        .trim();
 
     return UpdateInfo(
       version: version,
       releaseNotes: (data['body'] as String? ?? '').trim(),
       downloadUrl: downloadUrl,
-      releasePageUrl: (data['html_url'] as String? ?? '').trim(),
+      releasePageUrl: releasePageUrl.isEmpty
+          ? _releasesPageUrl
+          : releasePageUrl,
     );
   }
 
-  /// Скачивает установщик во временную папку.
-  Future<File> downloadUpdate(
-    UpdateInfo update, {
-    void Function(double progress)? onProgress,
-  }) async {
-    final tempDir = await getTemporaryDirectory();
-    final fileName = 'InkFlow-Setup-${update.version}.exe';
-    final file = File('${tempDir.path}${Platform.pathSeparator}$fileName');
-
-    if (await file.exists()) {
-      await file.delete();
-    }
-
-    final client = http.Client();
-    try {
-      final request = http.Request('GET', Uri.parse(update.downloadUrl));
-      request.headers['User-Agent'] = 'InkFlow';
-
-      final response = await client.send(request);
-      if (response.statusCode != 200) {
-        throw Exception(
-          'Не удалось скачать установщик (код ${response.statusCode})',
-        );
-      }
-
-      final totalBytes = response.contentLength ?? 0;
-      var receivedBytes = 0;
-      final sink = file.openWrite();
-
-      try {
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          receivedBytes += chunk.length;
-          if (totalBytes > 0) {
-            onProgress?.call(receivedBytes / totalBytes);
-          }
-        }
-        await sink.flush();
-      } finally {
-        await sink.close();
-      }
-    } catch (_) {
-      if (await file.exists()) {
-        await file.delete();
-      }
-      rethrow;
-    } finally {
-      client.close();
-    }
-
-    return file;
+  /// Открывает страницу скачивания установщика в браузере.
+  Future<void> openDownload(UpdateInfo update) async {
+    final url = update.downloadUrl.isNotEmpty
+        ? update.downloadUrl
+        : update.releasePageUrl;
+    await openUrl(url);
   }
 
-  /// Запускает установщик в тихом режиме и закрывает приложение.
-  Future<void> installUpdate(File installer) async {
-    if (!Platform.isWindows) {
-      throw UnsupportedError('Обновление доступно только на Windows');
+  /// Открывает страницу релиза на GitHub в браузере.
+  Future<void> openReleasePage(UpdateInfo update) async {
+    await openUrl(update.releasePageUrl);
+  }
+
+  /// Открывает ссылку в системном браузере.
+  Future<void> openUrl(String url) async {
+    if (url.isEmpty) {
+      throw Exception('Пустая ссылка');
     }
 
-    await Process.start(installer.path, const [
-      '/VERYSILENT',
-      '/SUPPRESSMSGBOXES',
-      '/NORESTART',
-      '/CLOSEAPPLICATIONS',
-    ], mode: ProcessStartMode.detached);
+    if (Platform.isWindows) {
+      await Process.start('rundll32', [
+        'url.dll,FileProtocolHandler',
+        url,
+      ], mode: ProcessStartMode.detached);
+      return;
+    }
 
-    exit(0);
+    if (Platform.isMacOS) {
+      await Process.start('open', [url], mode: ProcessStartMode.detached);
+      return;
+    }
+
+    if (Platform.isLinux) {
+      await Process.start('xdg-open', [url], mode: ProcessStartMode.detached);
+      return;
+    }
+
+    throw UnsupportedError(
+      'Открытие ссылок не поддерживается на этой платформе',
+    );
   }
 
   String _normalizeVersion(String value) {

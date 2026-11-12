@@ -1,166 +1,46 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:note_app/services/update_service.dart';
-import 'package:package_info_plus/package_info_plus.dart';
+import 'package:note_app/providers/update_provider.dart';
+import 'package:note_app/widgets/update_dialog.dart';
+import 'package:provider/provider.dart';
 
-class UpdateTile extends StatefulWidget {
+class UpdateTile extends StatelessWidget {
   const UpdateTile({super.key});
 
-  @override
-  State<UpdateTile> createState() => _UpdateTileState();
-}
+  Future<void> _checkForUpdates(BuildContext context) async {
+    final updateProvider = context.read<UpdateProvider>();
+    await updateProvider.checkForUpdates();
 
-class _UpdateTileState extends State<UpdateTile> {
-  final UpdateService _updateService = UpdateService();
+    if (!context.mounted) return;
 
-  String _currentVersion = '';
-  bool _checking = false;
-  bool _downloading = false;
-  double _downloadProgress = 0;
-
-  bool get _busy => _checking || _downloading;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentVersion();
-  }
-
-  Future<void> _loadCurrentVersion() async {
-    try {
-      final info = await PackageInfo.fromPlatform();
-      if (mounted) {
-        setState(() => _currentVersion = info.version);
-      }
-    } catch (_) {
-      // Версия недоступна — не мешаем пользователю пользоваться настройками.
-    }
-  }
-
-  Future<void> _checkForUpdates() async {
-    if (_busy) return;
-
-    setState(() => _checking = true);
-    try {
-      final update = await _updateService.checkForUpdate();
-      if (!mounted) return;
-
-      if (update == null) {
-        _showMessage('У вас последняя версия InkFlow');
-        return;
-      }
-
-      await _showUpdateDialog(update);
-    } catch (e) {
-      if (mounted) {
-        _showMessage('Не удалось проверить обновления: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _checking = false);
-      }
-    }
-  }
-
-  Future<void> _showUpdateDialog(UpdateInfo update) async {
-    final notes = update.releaseNotes;
-    final shouldInstall = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          title: Text(
-            'Доступна версия ${update.version}',
-            style: const TextStyle(fontFamily: 'Oswald'),
-          ),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 360),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Установлена версия $_currentVersion',
-                    style: const TextStyle(fontFamily: 'Oswald'),
-                  ),
-                  if (notes.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Что нового:',
-                      style: TextStyle(
-                        fontFamily: 'Oswald',
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(notes, style: const TextStyle(fontFamily: 'Oswald')),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text(
-                'Позже',
-                style: TextStyle(fontFamily: 'Oswald'),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text(
-                'Скачать и установить',
-                style: TextStyle(fontFamily: 'Oswald'),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldInstall == true) {
-      await _downloadAndInstall(update);
-    }
-  }
-
-  Future<void> _downloadAndInstall(UpdateInfo update) async {
-    setState(() {
-      _downloading = true;
-      _downloadProgress = 0;
-    });
-
-    try {
-      final installer = await _updateService.downloadUpdate(
-        update,
-        onProgress: (progress) {
-          if (mounted) {
-            setState(() => _downloadProgress = progress);
-          }
-        },
+    if (updateProvider.error != null) {
+      _showMessage(
+        context,
+        'Не удалось проверить обновления: ${updateProvider.error}',
       );
-
-      if (!mounted) return;
-
-      _showMessage('Запускаем установку обновления…');
-      await _updateService.installUpdate(installer);
-    } catch (e) {
-      if (mounted) {
-        _showMessage('Не удалось установить обновление: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _downloading = false);
-      }
+      return;
     }
+
+    if (!updateProvider.hasUpdate) {
+      _showMessage(context, 'У вас последняя версия InkFlow');
+      return;
+    }
+
+    await _showUpdateDialog(context, updateProvider);
   }
 
-  void _showMessage(String message) {
-    if (!mounted) return;
+  Future<void> _showUpdateDialog(
+    BuildContext context,
+    UpdateProvider updateProvider,
+  ) {
+    return showUpdateAvailableDialog(
+      context: context,
+      updateProvider: updateProvider,
+    );
+  }
 
+  void _showMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontFamily: 'Oswald')),
@@ -175,42 +55,50 @@ class _UpdateTileState extends State<UpdateTile> {
     }
 
     final theme = Theme.of(context);
-    final percent = (_downloadProgress * 100).clamp(0, 100).round();
-    final subtitle = _downloading
-        ? 'Скачивание обновления… $percent%'
-        : _checking
+    final updateProvider = context.watch<UpdateProvider>();
+    final update = updateProvider.update;
+
+    final subtitle = updateProvider.isChecking
         ? 'Проверка обновлений…'
-        : _currentVersion.isEmpty
+        : update != null
+        ? 'Доступна версия ${update.version}. Нажмите, чтобы скачать.'
+        : updateProvider.currentVersion.isEmpty
         ? 'Текущая версия'
-        : 'Текущая версия: $_currentVersion';
+        : 'Текущая версия: ${updateProvider.currentVersion}';
 
     return ListTile(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      leading: const Icon(Icons.system_update_alt_rounded),
+      leading: Icon(
+        Icons.system_update_alt_rounded,
+        color: update != null ? theme.colorScheme.primary : null,
+      ),
       title: const Text('Обновления', style: TextStyle(fontFamily: 'Oswald')),
       subtitle: Text(subtitle, style: const TextStyle(fontFamily: 'Oswald')),
-      trailing: _downloading
-          ? SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                value: _downloadProgress > 0 ? _downloadProgress : null,
-                strokeWidth: 2.5,
-                color: theme.colorScheme.primary,
-              ),
-            )
-          : _checking
+      trailing: updateProvider.isChecking
           ? const SizedBox(
               width: 24,
               height: 24,
               child: CircularProgressIndicator(strokeWidth: 2.5),
             )
+          : update != null
+          ? IconButton(
+              tooltip: 'Скачать обновление',
+              onPressed: () => _showUpdateDialog(context, updateProvider),
+              icon: Icon(
+                Icons.download_rounded,
+                color: theme.colorScheme.primary,
+              ),
+            )
           : IconButton(
               tooltip: 'Проверить обновления',
-              onPressed: _checkForUpdates,
+              onPressed: () => _checkForUpdates(context),
               icon: const Icon(Icons.refresh_rounded),
             ),
-      onTap: _busy ? null : _checkForUpdates,
+      onTap: updateProvider.isChecking
+          ? null
+          : update != null
+          ? () => _showUpdateDialog(context, updateProvider)
+          : () => _checkForUpdates(context),
     );
   }
 }

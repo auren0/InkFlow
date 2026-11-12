@@ -55,6 +55,12 @@ class NoteProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void removeNoteFromFolder(SaveNote note) async {
+    note.folderId = null;
+    await note.save();
+    notifyListeners();
+  }
+
   void moveNote(SaveNote note, Box<SaveNote> to) async {
     final newNote = SaveNote(
       title: note.title,

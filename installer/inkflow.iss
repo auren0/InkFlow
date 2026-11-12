@@ -2,7 +2,7 @@
 ; Build: powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.2.0"
 #endif
 
 #define MyAppName "InkFlow"

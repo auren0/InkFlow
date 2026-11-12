@@ -2,6 +2,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:note_app/providers/note_provider.dart';
+import 'package:note_app/providers/update_provider.dart';
 import 'package:note_app/screens/archive_screen.dart';
 import 'package:note_app/screens/create_folder_screen.dart';
 import 'package:note_app/screens/folder_screen.dart';
@@ -10,6 +11,7 @@ import 'package:note_app/screens/settings_screen.dart';
 import 'package:note_app/screens/trash_screen.dart';
 import 'package:note_app/services/hive_service.dart';
 import 'package:note_app/shared_preferences/theme_provider.dart';
+import 'package:note_app/widgets/update_dialog.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -34,6 +36,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => NoteProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => UpdateProvider()),
       ],
       child: const NoteApp(),
     ),
@@ -145,7 +148,9 @@ class _MainNavigationState extends State<MainNavigation>
     setState(() {
       _currentScreenIndex = index;
     });
-    // Navigator.pop(context);
+    if (MediaQuery.of(context).size.width < 650) {
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -170,6 +175,24 @@ class _MainNavigationState extends State<MainNavigation>
 
     _slideController.forward();
     _fadeController.forward();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdatesOnStartup();
+    });
+  }
+
+  Future<void> _checkForUpdatesOnStartup() async {
+    if (!Platform.isWindows) return;
+
+    final updateProvider = context.read<UpdateProvider>();
+    await updateProvider.initialize();
+
+    if (!mounted || !updateProvider.shouldShowStartupDialog) return;
+
+    await showUpdateAvailableDialog(
+      context: context,
+      updateProvider: updateProvider,
+    );
   }
 
   @override
