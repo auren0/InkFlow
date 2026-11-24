@@ -1,105 +1,96 @@
-# 🎨 InkFlow
+<p align="center">
+  <img src="assets/icons/app_icon.png" width="100" alt="InkFlow logo">
+</p>
 
-**InkFlow** is an elegant and intuitive note-taking app built with Flutter. Easily transform your thoughts into
-beautifully designed notes.
+<h1 align="center">InkFlow</h1>
 
 <p align="center">
-  <img src="/assets/icons/app_icon.png" alt="InkFlow Banner" width="150"/>
+  InkFlow is a lightweight note-taking application built with Flutter. It focuses on offline-first local storage, rich-text formatting, and a clean, distraction-free interface across desktop and mobile devices. All notes and attachments remain stored locally on your device without mandatory accounts or cloud dependencies.
 </p>
 
 <p align="center">
-  <!-- <a href="https://github.com/VoidCorew/inkflow/releases">
-    <img src="/assets/" alt="Version">
-  </a> -->
-  <a href="https://flutter.dev">
-    <img src="https://img.shields.io/badge/Built%20with-Flutter-02569B?logo=flutter" alt="Built with Flutter">
-  </a>
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
-  </a>
+  <b>English</b> | <a href="README.ru.md">Русский</a>
 </p>
 
----
+<p align="center">
+  <a href="https://github.com/auren0/InkFlow/releases">GitHub Releases</a>
+</p>
 
-## ✨ Possibilities
+## Screenshots
 
-- **🎨 Personalization**: Change the background of your notes, choose from a palette of beautiful colors.
-- **📂 Smart organization**: Sort and organize notes by categories and tags.
-- **🌙 Dark Theme**: A pleasing display at any time of day.
-- **☁️ Sync** (planned): Sync your notes across devices.
+### Mobile
 
-## 📸 Screenshots
+| Main screen | Note editor | Navigation menu |
+| --- | --- | --- |
+| <img src="docs/screenshots/notes.png" width="230" alt="Main screen on mobile"> | <img src="docs/screenshots/editor.png" width="230" alt="Note editor on mobile"> | <img src="docs/screenshots/navigation.png" width="230" alt="Navigation menu on mobile"> |
 
-|                   Main Screen                   |                 Creating a note                 |                      Menu                       |
-|:-----------------------------------------------:|:-----------------------------------------------:|:-----------------------------------------------:|
-| <img src="/assets/images/img1.png" width="250"> | <img src="/assets/images/img2.png" width="250"> | <img src="/assets/images/img3.png" width="250"> |
+### Desktop
 
-## 🚀 Getting Started
+<p align="center">
+  <img src="docs/screenshots/desktop-main.png" width="900" alt="InkFlow Desktop">
+</p>
+
+## Features
+
+- Rich text editing with headings, bold, italic, underline, strikethrough, bulleted and numbered lists, and interactive TODO checkboxes.
+- Reliable autosave with race condition protection, real-time status indicators (saving, saved, unsaved changes, error), and note creation and last modified timestamps.
+- Note organization with custom folders, archive, and trash with restore or permanent deletion.
+- Fast note search and automatic chronological date grouping.
+- File attachments with image previews and built-in voice audio recording and playback.
+- Visual customization including light, dark, and system themes, custom accent colors, and multiple font families (Jura, Nunito, Oswald).
+- Complete data backup through ZIP export and import of notes and attachments, stored locally via Hive.
+- Platform-adapted interactions with right-click context menus on desktop and long-press menus on mobile devices.
+- In-app update checker fetching release metadata from GitHub Releases.
+
+## Supported platforms
+
+- Windows: fully supported (tested, portable build and Inno Setup installer).
+- Android: fully supported (tested, release APKs with split-per-abi).
+- Linux: configured and buildable with CMake.
+- Web: configured with responsive layout and disabled browser context menu overrides.
+- macOS and iOS: not configured in the repository.
+
+## Getting started
 
 ### Prerequisites
 
-Make sure you have the following installed on your machine:
-
-- [Flutter SDK](https://flutter.dev/docs/get-started/install) (latest stable version)
-- Any IDE with Flutter support (VS Code, Android Studio)
+- Flutter SDK (3.8.1 or higher)
 - Git
 
 ### Installation
 
-1. **Clone repository**
-   ```bash
-   git clone https://github.com/VoidCorew/inkflow.git
-   cd inkflow
-   ```
+Clone the repository and fetch dependencies:
 
-2. **Get dependencies**
-   ```bash
-   flutter pub get
-   ```
+```bash
+git clone https://github.com/auren0/InkFlow.git
+cd InkFlow
+flutter pub get
+```
 
-3. **Run the app**
-    ```bash
-    flutter run
-    ```
+### Running
 
-### Build
+Launch the application on an available device or desktop target:
 
-- **For Android**
+```bash
+flutter run
+```
 
-   ```bash
-   flutter build apk
-   ```
-- **For iOS**
+### Building
 
-   ```bash
-   flutter build ios
-   ```
+Build for Windows:
 
-## 🤝 How to get involved
+```bash
+flutter build windows --release
+```
 
-We welcome community contributions! To help improve InkFlow:
+Build split APKs for Android:
 
-1. Fork the project
+```bash
+flutter build apk --release --split-per-abi
+```
 
-2. Create a branch for the feature (git checkout -b feature/AmazingFeature)
+Pre-built binaries for Windows and Android are available on the [GitHub Releases](https://github.com/auren0/InkFlow/releases) page.
 
-3. Commit the changes (git commit -m 'Add some AmazingFeature')
-
-4. Push to the branch (git push origin feature/AmazingFeature)
-
-5. Open a Pull Request
-
-Please ensure your code meets our standards and passes all tests.
-
-## 📜 License
+## License
 
 This project is licensed under the MIT License.
-
-## 📞 Contact and Support
-
-- Email: amcxz6092@gmail.com
-- Telegram: @cxzerr
-
-<!-- - Email: <amcxz6092@gmail.com> -->
-<!-- - [<img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=gmail&logoColor=white" />](https://t.me/your_channel_name)
-- [<img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" />](https://t.me/your_channel_name) -->

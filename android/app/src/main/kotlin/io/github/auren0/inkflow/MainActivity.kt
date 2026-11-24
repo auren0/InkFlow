@@ -1,4 +1,4 @@
-package com.example.note_app
+package io.github.auren0.inkflow
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:note_app/hive_models/save_folder.dart';
-import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/shared_preferences/theme_provider.dart';
+import 'package:inkflow/hive_models/save_folder.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/note_provider.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class CreateFolderScreen extends StatefulWidget {
@@ -35,14 +36,12 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
+    final theme = Theme.of(context);
+    final accentColor = theme.colorScheme.primary;
+    final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Создать папку',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
-      ),
+      appBar: AppBar(title: Text(l10n.t('folder.create'), style: TextStyle())),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -52,13 +51,10 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.all(20.0),
-                  foregroundColor: themeProvider.primaryColor,
+                  foregroundColor: accentColor,
                   // backgroundColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
-                    side: BorderSide(
-                      color: themeProvider.primaryColor,
-                      width: 2,
-                    ),
+                    side: BorderSide(color: accentColor, width: 2),
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -69,9 +65,9 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                     context: context,
                     barrierDismissible: true,
                     builder: (context) => AlertDialog(
-                      title: const Text(
-                        'Выберите цвет для выбранного дня',
-                        style: TextStyle(fontFamily: 'Oswald'),
+                      title: Text(
+                        l10n.t('folder.colorDialog'),
+                        style: TextStyle(),
                       ),
                       content: SingleChildScrollView(
                         child: ColorPicker(
@@ -92,21 +88,14 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            side: BorderSide(
-                              color: themeProvider.primaryColor,
-                              width: 2,
-                            ),
+                            side: BorderSide(color: accentColor, width: 2),
                           ),
                           onPressed: () {
                             Navigator.pop(context);
                           },
                           child: Text(
-                            "Отмена",
-                            style: TextStyle(
-                              color: themeProvider.primaryColor,
-                              fontFamily: 'Oswald',
-                              fontSize: 18,
-                            ),
+                            l10n.t('common.cancel'),
+                            style: TextStyle(color: accentColor, fontSize: 18),
                           ),
                         ),
                         ElevatedButton(
@@ -128,10 +117,9 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                             Navigator.pop(context);
                           },
                           child: Text(
-                            "Выбрать",
+                            l10n.t('common.choose'),
                             style: TextStyle(
                               fontSize: 18,
-                              fontFamily: 'Oswald',
                               color: themeProvider.onPrimaryColor,
                             ),
                           ),
@@ -141,13 +129,8 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                   );
                 },
                 child: Text(
-                  'Выбрать цвет тега',
-                  style: TextStyle(
-                    color: themeProvider.isDark
-                        ? themeProvider.primaryColor
-                        : Colors.black,
-                    fontFamily: 'Oswald',
-                  ),
+                  l10n.t('folder.tagColor'),
+                  style: TextStyle(color: accentColor),
                 ),
               ),
             ),
@@ -155,44 +138,25 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
             Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: themeProvider.primaryColor.withValues(
-                    alpha: 0.3,
-                  ),
-                  selectionHandleColor: themeProvider.primaryColor,
+                  selectionColor: accentColor.withValues(alpha: 0.3),
+                  selectionHandleColor: accentColor,
                 ),
               ),
               child: TextField(
                 controller: _folderTitleController,
-                cursorColor: themeProvider.primaryColor,
+                cursorColor: accentColor,
                 decoration: InputDecoration(
-                  floatingLabelStyle: TextStyle(
-                    fontFamily: 'Oswald',
-                    color: themeProvider.isDark
-                        ? themeProvider.primaryColor
-                        : Colors.black,
-                  ),
+                  floatingLabelStyle: TextStyle(color: accentColor),
                   focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(
-                      color: themeProvider.primaryColor,
-                      width: 2,
-                    ),
+                    borderSide: BorderSide(color: accentColor, width: 2),
                     // borderRadius: BorderRadius.circular(10),
                   ),
-                  focusColor: themeProvider.primaryColor,
+                  focusColor: accentColor,
                   border: OutlineInputBorder(),
-                  label: const Text(
-                    'Название',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
-                  hint: const Text(
-                    'Введите название папки',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
+                  label: Text(l10n.t('folder.name'), style: TextStyle()),
+                  hint: Text(l10n.t('folder.nameHint'), style: TextStyle()),
                 ),
-                style: TextStyle(
-                  fontFamily: 'Jura',
-                  fontFamilyFallback: ['Apple'],
-                ),
+                style: TextStyle(fontFamilyFallback: ['Apple']),
               ),
             ),
             const SizedBox(height: 45),
@@ -212,9 +176,9 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: const Text(
-                          'Введите назание папки!',
-                          style: TextStyle(fontFamily: 'Oswald'),
+                        content: Text(
+                          l10n.t('folder.nameRequired'),
+                          style: TextStyle(),
                         ),
                       ),
                     );
@@ -239,11 +203,10 @@ class _CreateFolderScreenState extends State<CreateFolderScreen> {
                   Navigator.pop(context);
                 },
                 child: Text(
-                  widget.folder == null ? 'Создать' : 'Сохранить изменения',
-                  style: TextStyle(
-                    color: themeProvider.onPrimaryColor,
-                    fontFamily: 'Oswald',
-                  ),
+                  widget.folder == null
+                      ? l10n.t('common.create')
+                      : l10n.t('folder.saveChanges'),
+                  style: TextStyle(color: themeProvider.onPrimaryColor),
                 ),
               ),
             ),

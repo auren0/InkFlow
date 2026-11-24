@@ -1,26 +1,43 @@
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/providers/update_provider.dart';
-import 'package:note_app/screens/archive_screen.dart';
-import 'package:note_app/screens/create_folder_screen.dart';
-import 'package:note_app/screens/folder_screen.dart';
-import 'package:note_app/screens/home_screen.dart';
-import 'package:note_app/screens/settings_screen.dart';
-import 'package:note_app/screens/trash_screen.dart';
-import 'package:note_app/services/hive_service.dart';
-import 'package:note_app/shared_preferences/theme_provider.dart';
-import 'package:note_app/widgets/update_dialog.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/note_provider.dart';
+import 'package:inkflow/providers/update_provider.dart';
+import 'package:inkflow/screens/archive_screen.dart';
+import 'package:inkflow/screens/create_folder_screen.dart';
+import 'package:inkflow/screens/folder_screen.dart';
+import 'package:inkflow/screens/home_screen.dart';
+import 'package:inkflow/screens/settings_screen.dart';
+import 'package:inkflow/screens/trash_screen.dart';
+import 'package:inkflow/services/hive_service.dart';
+import 'package:inkflow/shared_preferences/note_settings_provider.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
+import 'package:inkflow/theme/app_color_scheme.dart';
+import 'package:inkflow/theme/app_text_theme.dart';
+import 'package:inkflow/widgets/update_dialog.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:window_size/window_size.dart' as window;
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kIsWeb || Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+  if (kIsWeb) {
+    BrowserContextMenu.disableContextMenu();
+  }
+
+  final isDesktop =
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
+  if (isDesktop) {
     const double width = 500;
     const double height = 700;
 
@@ -30,21 +47,23 @@ void main() async {
   }
 
   await HiveService.init();
+  await initializeDateFormatting();
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => NoteProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => NoteSettingsProvider()),
         ChangeNotifierProvider(create: (_) => UpdateProvider()),
       ],
-      child: const NoteApp(),
+      child: const InkFlowApp(),
     ),
   );
 }
 
-class NoteApp extends StatelessWidget {
-  const NoteApp({super.key});
+class InkFlowApp extends StatelessWidget {
+  const InkFlowApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -59,6 +78,14 @@ class NoteApp extends StatelessWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      locale: themeProvider.locale,
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeProvider.currentTheme,
@@ -75,7 +102,18 @@ class NoteApp extends StatelessWidget {
         ? ThemeData.dark()
         : ThemeData.light();
 
-    var colorScheme = ColorScheme.fromSeed(
+    final textTheme = applyAppFont(
+      base.textTheme,
+      family: themeProvider.fontFamily,
+      bold: themeProvider.boldText,
+    );
+    final primaryTextTheme = applyAppFont(
+      base.primaryTextTheme,
+      family: themeProvider.fontFamily,
+      bold: themeProvider.boldText,
+    );
+
+    var colorScheme = buildAppColorScheme(
       seedColor: themeProvider.primaryColor,
       brightness: brightness,
     );
@@ -96,7 +134,13 @@ class NoteApp extends StatelessWidget {
       );
     }
 
-    final theme = base.copyWith(colorScheme: colorScheme);
+    final theme = base.copyWith(
+      colorScheme: colorScheme,
+      textTheme: textTheme,
+      primaryTextTheme: primaryTextTheme,
+      listTileTheme: ListTileThemeData(selectedColor: colorScheme.primary),
+      switchTheme: buildAppSwitchTheme(colorScheme),
+    );
 
     if (!oled) return theme;
 
@@ -137,11 +181,11 @@ class _MainNavigationState extends State<MainNavigation>
     TrashScreen(),
   ];
 
-  final List<String> _titles = const [
-    'Главная',
-    'Настройки',
-    'Архив',
-    'Корзина',
+  List<String> _screenTitles(BuildContext context) => [
+    context.l10n.t('nav.home'),
+    context.l10n.t('nav.settings'),
+    context.l10n.t('nav.archive'),
+    context.l10n.t('nav.trash'),
   ];
 
   void _onDrawerTap(int index) {
@@ -182,8 +226,6 @@ class _MainNavigationState extends State<MainNavigation>
   }
 
   Future<void> _checkForUpdatesOnStartup() async {
-    if (!Platform.isWindows) return;
-
     final updateProvider = context.read<UpdateProvider>();
     await updateProvider.initialize();
 
@@ -197,9 +239,9 @@ class _MainNavigationState extends State<MainNavigation>
 
   @override
   void dispose() {
-    super.dispose();
     _slideController.dispose();
     _fadeController.dispose();
+    super.dispose();
   }
 
   @override
@@ -207,6 +249,8 @@ class _MainNavigationState extends State<MainNavigation>
     final foldersProvider = context.watch<NoteProvider>();
     final themeProvider = context.watch<ThemeProvider>();
     final folders = foldersProvider.folders;
+    final l10n = context.l10n;
+    final titles = _screenTitles(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -218,10 +262,7 @@ class _MainNavigationState extends State<MainNavigation>
         //     );
         //   },
         // ),
-        title: Text(
-          _titles[_currentScreenIndex],
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
+        title: Text(titles[_currentScreenIndex], style: TextStyle()),
         actions: _currentScreenIndex == 0
             ? [
                 PopupMenuButton(
@@ -237,12 +278,9 @@ class _MainNavigationState extends State<MainNavigation>
                       },
                       child: Row(
                         children: [
-                          const Icon(Icons.folder),
+                          const Icon(FluentIcons.folder_24_regular),
                           const SizedBox(width: 10),
-                          const Text(
-                            'Создать папку',
-                            style: TextStyle(fontFamily: 'Oswald'),
-                          ),
+                          Text(l10n.t('folder.create'), style: TextStyle()),
                         ],
                       ),
                     ),
@@ -265,7 +303,7 @@ class _MainNavigationState extends State<MainNavigation>
                         _buildDrawerTile(
                           0,
                           FluentIcons.home_24_filled,
-                          'Главная',
+                          l10n.t('nav.home'),
                         ),
 
                         const SizedBox(height: 5),
@@ -273,7 +311,7 @@ class _MainNavigationState extends State<MainNavigation>
                         _buildDrawerTile(
                           1,
                           FluentIcons.settings_24_filled,
-                          'Настройки',
+                          l10n.t('nav.settings'),
                         ),
 
                         const SizedBox(height: 5),
@@ -281,7 +319,7 @@ class _MainNavigationState extends State<MainNavigation>
                         _buildDrawerTile(
                           2,
                           FluentIcons.archive_24_filled,
-                          'Архив',
+                          l10n.t('nav.archive'),
                         ),
 
                         const SizedBox(height: 5),
@@ -289,7 +327,7 @@ class _MainNavigationState extends State<MainNavigation>
                         _buildDrawerTile(
                           3,
                           FluentIcons.delete_24_filled,
-                          'Корзина',
+                          l10n.t('nav.trash'),
                         ),
                       ],
                     ),
@@ -309,6 +347,9 @@ class _MainNavigationState extends State<MainNavigation>
       drawer: MediaQuery.of(context).size.width < 650
           ? Drawer(
               child: ListView(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewPaddingOf(context).bottom,
+                ),
                 children: [
                   DrawerHeader(
                     decoration: BoxDecoration(
@@ -317,9 +358,8 @@ class _MainNavigationState extends State<MainNavigation>
                     child: FadeTransition(
                       opacity: _fadeAnimation,
                       child: Text(
-                        'Меню',
+                        l10n.t('nav.menu'),
                         style: TextStyle(
-                          fontFamily: 'Oswald',
                           color: themeProvider.onPrimaryColor,
                           fontSize: 35,
                         ),
@@ -331,7 +371,7 @@ class _MainNavigationState extends State<MainNavigation>
                     child: _buildDrawerTile(
                       0,
                       FluentIcons.home_24_filled,
-                      'Главная',
+                      l10n.t('nav.home'),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -342,7 +382,7 @@ class _MainNavigationState extends State<MainNavigation>
                       child: _buildDrawerTile(
                         1,
                         FluentIcons.settings_24_filled,
-                        'Настройки',
+                        l10n.t('nav.settings'),
                       ),
                     ),
                   ),
@@ -350,9 +390,17 @@ class _MainNavigationState extends State<MainNavigation>
                     padding: const EdgeInsets.symmetric(vertical: 10.0),
                     child: const Divider(),
                   ),
-                  _buildDrawerTile(2, FluentIcons.archive_24_filled, 'Архив'),
+                  _buildDrawerTile(
+                    2,
+                    FluentIcons.archive_24_filled,
+                    l10n.t('nav.archive'),
+                  ),
                   const SizedBox(height: 10),
-                  _buildDrawerTile(3, FluentIcons.delete_24_filled, 'Корзина'),
+                  _buildDrawerTile(
+                    3,
+                    FluentIcons.delete_24_filled,
+                    l10n.t('nav.trash'),
+                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10.0),
                     child: const Divider(),
@@ -371,9 +419,9 @@ class _MainNavigationState extends State<MainNavigation>
                             showDialog(
                               context: context,
                               builder: (_) => AlertDialog(
-                                title: const Text(
-                                  'Выберите вариант',
-                                  style: TextStyle(fontFamily: 'Oswald'),
+                                title: Text(
+                                  l10n.t('folder.options'),
+                                  style: TextStyle(),
                                 ),
                                 actions: [
                                   Column(
@@ -401,10 +449,9 @@ class _MainNavigationState extends State<MainNavigation>
                                             Navigator.pop(context);
                                           },
                                           child: Text(
-                                            "Отмена",
+                                            l10n.t('common.cancel'),
                                             style: TextStyle(
                                               color: Colors.green,
-                                              fontFamily: 'Oswald',
                                               fontSize: 18,
                                             ),
                                           ),
@@ -441,11 +488,10 @@ class _MainNavigationState extends State<MainNavigation>
                                               ),
                                             );
                                           },
-                                          child: const Text(
-                                            'Переименовать',
+                                          child: Text(
+                                            l10n.t('folder.rename'),
                                             style: TextStyle(
                                               fontSize: 18,
-                                              fontFamily: 'Oswald',
                                               color: Colors.white,
                                             ),
                                           ),
@@ -475,17 +521,16 @@ class _MainNavigationState extends State<MainNavigation>
                                               context,
                                             ).showSnackBar(
                                               SnackBar(
-                                                content: const Text(
-                                                  'Папка перемещена в корзину',
+                                                content: Text(
+                                                  l10n.t('folder.movedToTrash'),
                                                 ),
                                               ),
                                             );
                                           },
                                           child: Text(
-                                            "Удалить",
+                                            l10n.t('common.delete'),
                                             style: TextStyle(
                                               fontSize: 18,
-                                              fontFamily: 'Oswald',
                                               color: Colors.white,
                                             ),
                                           ),
@@ -511,10 +556,7 @@ class _MainNavigationState extends State<MainNavigation>
                           ),
                           title: Text(
                             folder.title,
-                            style: TextStyle(
-                              fontFamily: 'Oswald',
-                              fontFamilyFallback: ['Apple'],
-                            ),
+                            style: TextStyle(fontFamilyFallback: ['Apple']),
                           ),
                           onTap: () {
                             Navigator.push(
@@ -545,7 +587,7 @@ class _MainNavigationState extends State<MainNavigation>
         selectedColor: themeProvider.onPrimaryColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         leading: Icon(icon),
-        title: Text(title, style: TextStyle(fontFamily: 'Oswald')),
+        title: Text(title, style: TextStyle()),
         selected: _currentScreenIndex == index,
         onTap: () => _onDrawerTap(index),
       ),

@@ -1,7 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/foundation.dart';
-import 'package:note_app/services/update_service.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/services/update_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Хранит информацию о доступном обновлении, чтобы её можно было показать
@@ -20,6 +19,7 @@ class UpdateProvider extends ChangeNotifier {
   String? _dismissedVersion;
   bool _checking = false;
   bool _initialized = false;
+  bool _lastCheckCompleted = false;
 
   UpdateInfo? get update => _update;
 
@@ -31,13 +31,19 @@ class UpdateProvider extends ChangeNotifier {
 
   bool get isChecking => _checking;
 
+  /// True only when the last completed check succeeded and found no update.
+  /// Never use this when [error] is set: a network failure is not proof that
+  /// the installed version is current.
+  bool get isUpToDate =>
+      _lastCheckCompleted && !_checking && _error == null && _update == null;
+
   /// Нужно ли автоматически показывать окно обновления при запуске.
   bool get shouldShowStartupDialog =>
       _update != null && _update!.version != _dismissedVersion;
 
   /// Загружает сохранённые настройки и проверяет обновления при запуске.
   Future<void> initialize() async {
-    if (!Platform.isWindows || _initialized) return;
+    if (_initialized) return;
     _initialized = true;
 
     final prefs = await SharedPreferences.getInstance();
@@ -47,21 +53,35 @@ class UpdateProvider extends ChangeNotifier {
   }
 
   Future<void> checkForUpdates() async {
-    if (!Platform.isWindows || _checking) return;
+    if (_checking) return;
 
     _checking = true;
     _error = null;
+    _lastCheckCompleted = false;
+
+    // Never keep a previous result visible while a new check is running or
+    // after it failed. Otherwise an old release could be offered even though
+    // the current version is already up to date.
+    _update = null;
     notifyListeners();
 
     try {
       _currentVersion = await _service.getCurrentVersion();
       _update = await _service.checkForUpdate();
-    } catch (e) {
-      _error = e.toString();
+      _lastCheckCompleted = true;
+    } catch (error) {
+      _update = null;
+      _error = _friendlyError(error);
     } finally {
       _checking = false;
       notifyListeners();
     }
+  }
+
+  String _friendlyError(Object error) {
+    if (error is UpdateCheckException) return error.message;
+
+    return AppLocalizations.translate('update.errorGeneric', {'error': error});
   }
 
   /// Запоминает версию, окно с которой пользователь закрыл. При следующем

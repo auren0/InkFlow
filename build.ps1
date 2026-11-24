@@ -28,7 +28,7 @@ Get-ChildItem "windows" -Recurse -Filter "CMakeLists.txt" |
         $text = Get-Content $path -Raw
 
         $text = $text.Replace(
-            '$<TARGET_FILE_DIR:note_app>',
+            '$<TARGET_FILE_DIR:InkFlow>',
             '$<TARGET_FILE_DIR:InkFlow>'
         )
 

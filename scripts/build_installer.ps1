@@ -31,8 +31,8 @@ try {
     }
 
     $releaseDir = Join-Path $root 'build\windows\x64\runner\Release'
-    if (-not (Test-Path (Join-Path $releaseDir 'note_app.exe'))) {
-        throw 'Не найден note_app.exe. Сначала успешно соберите Windows Release.'
+    if (-not (Test-Path (Join-Path $releaseDir 'InkFlow.exe'))) {
+        throw 'Не найден InkFlow.exe. Сначала успешно соберите Windows Release.'
     }
 
     $isccCandidates = @(

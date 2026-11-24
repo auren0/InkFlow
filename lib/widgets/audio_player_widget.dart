@@ -1,7 +1,8 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:note_app/shared_preferences/theme_provider.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
   final String filePath;
@@ -70,7 +71,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final primaryColor = widget.themeProvider.primaryColor;
+    final accentColor = theme.colorScheme.primary;
+    final l10n = context.l10n;
 
     return Card(
       child: Padding(
@@ -81,7 +83,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             Row(
               children: [
                 IconButton(
-                  tooltip: isPlaying ? 'Пауза' : 'Воспроизвести',
+                  tooltip: isPlaying
+                      ? l10n.t('audio.pause')
+                      : l10n.t('audio.play'),
                   onPressed: () async {
                     if (isPlaying) {
                       await _player.pause();
@@ -102,31 +106,30 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 ),
                 Expanded(
                   child: Text(
-                    audioTitle ?? 'Аудио заметка',
+                    audioTitle ?? l10n.t('audio.title'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 16,
-                      fontFamily: 'Oswald',
                       color: theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Переименовать',
+                  tooltip: l10n.t('common.rename'),
                   onPressed: () => _showRenameDialog(context),
                   icon: const Icon(FluentIcons.edit_24_regular),
                 ),
                 IconButton(
-                  tooltip: 'Удалить',
+                  tooltip: l10n.t('common.delete'),
                   onPressed: widget.onDelete,
                   icon: const Icon(FluentIcons.delete_off_24_regular),
                 ),
               ],
             ),
             Slider(
-              activeColor: primaryColor,
-              thumbColor: primaryColor,
+              activeColor: accentColor,
+              thumbColor: accentColor,
               value: _position.inSeconds
                   .clamp(0, _duration.inSeconds)
                   .toDouble(),
@@ -146,7 +149,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.onSurfaceVariant,
-                    fontFamily: 'Oswald',
                   ),
                 ),
                 Text(
@@ -154,7 +156,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                   style: TextStyle(
                     fontSize: 12,
                     color: theme.colorScheme.onSurfaceVariant,
-                    fontFamily: 'Oswald',
                   ),
                 ),
               ],
@@ -173,49 +174,37 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   }
 
   void _showRenameDialog(BuildContext context) {
-    _editController.text = audioTitle ?? 'Аудио заметка';
+    final l10n = context.l10n;
+    _editController.text = audioTitle ?? l10n.t('audio.title');
     final theme = Theme.of(context);
     final primaryColor = widget.themeProvider.primaryColor;
+    final accentColor = theme.colorScheme.primary;
     final onPrimaryColor = widget.themeProvider.onPrimaryColor;
 
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text(
-          'Переименовать аудио заметку',
-          style: TextStyle(fontFamily: 'Oswald'),
-        ),
+        title: Text(l10n.t('audio.renameTitle'), style: TextStyle()),
         content: Theme(
           data: Theme.of(context).copyWith(
             textSelectionTheme: TextSelectionThemeData(
-              selectionColor: primaryColor.withValues(alpha: 0.3),
-              selectionHandleColor: primaryColor,
+              selectionColor: accentColor.withValues(alpha: 0.3),
+              selectionHandleColor: accentColor,
             ),
           ),
           child: TextField(
-            style: const TextStyle(fontFamily: 'Oswald'),
+            style: const TextStyle(),
             controller: _editController,
-            cursorColor: primaryColor,
+            cursorColor: accentColor,
             decoration: InputDecoration(
-              floatingLabelStyle: TextStyle(
-                fontFamily: 'Oswald',
-                color: widget.themeProvider.isDark
-                    ? primaryColor
-                    : Colors.black,
-              ),
+              floatingLabelStyle: TextStyle(color: accentColor),
               focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: primaryColor, width: 2),
+                borderSide: BorderSide(color: accentColor, width: 2),
               ),
-              focusColor: primaryColor,
-              label: const Text(
-                'Название',
-                style: TextStyle(fontFamily: 'Oswald'),
-              ),
-              hint: const Text(
-                'Введите название',
-                style: TextStyle(fontFamily: 'Oswald'),
-              ),
+              focusColor: accentColor,
+              label: Text(l10n.t('audio.name'), style: TextStyle()),
+              hint: Text(l10n.t('audio.nameHint'), style: TextStyle()),
               border: const OutlineInputBorder(),
             ),
           ),
@@ -236,9 +225,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             onPressed: () {
               Navigator.pop(dialogContext);
             },
-            child: const Text(
-              "Отмена",
-              style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+            child: Text(
+              l10n.t('common.cancel'),
+              style: TextStyle(fontSize: 18),
             ),
           ),
           ElevatedButton(
@@ -256,7 +245,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             onPressed: () {
               final newTitle = _editController.text.isNotEmpty
                   ? _editController.text
-                  : 'Аудио заметка';
+                  : l10n.t('audio.title');
               widget.onTitleChanged(newTitle);
               setState(() {
                 audioTitle = newTitle;
@@ -264,12 +253,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               Navigator.pop(dialogContext);
             },
             child: Text(
-              "Переименовать",
-              style: TextStyle(
-                fontSize: 18,
-                fontFamily: 'Oswald',
-                color: onPrimaryColor,
-              ),
+              l10n.t('common.rename'),
+              style: TextStyle(fontSize: 18, color: onPrimaryColor),
             ),
           ),
         ],

@@ -1,8 +1,26 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:http/http.dart' as http;
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/services/semantic_version.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+/// A user-facing update-check failure.
+///
+/// Keeping a dedicated exception type lets the provider show a clear message
+/// instead of leaking `Exception: ...` internals into the UI.
+class UpdateCheckException implements Exception {
+  const UpdateCheckException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 /// Информация о доступном обновлении с GitHub Releases.
 class UpdateInfo {
@@ -26,61 +44,119 @@ class UpdateService {
   static const String _releasesPageUrl =
       'https://github.com/$repository/releases/latest';
 
-  /// Возвращает текущую версию приложения из `pubspec.yaml`.
+  /// Возвращает текущую версию приложения из `package_info_plus`.
+  ///
+  /// PackageInfo.version intentionally does not include the build number
+  /// (`1.3.0+42` → `1.3.0`), so the release version and the platform build
+  /// number can never be confused.
   Future<String> getCurrentVersion() async {
     final packageInfo = await PackageInfo.fromPlatform();
     return packageInfo.version.trim();
   }
 
   /// Проверяет последний релиз на GitHub и возвращает его, если версия новее
-  /// установленной. На других платформах, кроме Windows, возвращает null.
+  /// установленной.
+  ///
+  /// Returns `null` when the installed version is equal to or newer than the
+  /// published one. Throws [UpdateCheckException] when the release cannot be
+  /// checked or has an invalid version. A failed check is never reported as
+  /// "you have the latest version".
   Future<UpdateInfo?> checkForUpdate() async {
-    if (!Platform.isWindows) return null;
+    final SemanticVersion currentVersion;
+    try {
+      final rawCurrentVersion = await getCurrentVersion();
+      final parsed = SemanticVersion.tryParse(rawCurrentVersion);
+      if (parsed == null) {
+        throw UpdateCheckException(
+          AppLocalizations.translate('update.errorCurrentVersion', {
+            'version': rawCurrentVersion,
+          }),
+        );
+      }
+      currentVersion = parsed;
+    } on UpdateCheckException {
+      rethrow;
+    } catch (error) {
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorCurrentVersionUnknown', {
+          'error': error,
+        }),
+      );
+    }
 
-    final currentVersion = await getCurrentVersion();
-
-    final response = await http
-        .get(
-          Uri.parse(_latestReleaseUrl),
-          headers: const {
-            'Accept': 'application/vnd.github+json',
-            'User-Agent': 'InkFlow',
-          },
-        )
-        .timeout(const Duration(seconds: 20));
+    final http.Response response;
+    try {
+      response = await http
+          .get(
+            Uri.parse(_latestReleaseUrl),
+            headers: const {
+              'Accept': 'application/vnd.github+json',
+              'User-Agent': 'InkFlow',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorTimeout'),
+      );
+    } catch (error) {
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorNetwork', {'error': error}),
+      );
+    }
 
     // Релизов ещё нет — обновляться некуда.
     if (response.statusCode == 404) return null;
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'GitHub вернул код ${response.statusCode}. '
-        'Попробуйте позже.',
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorStatus', {
+          'code': response.statusCode,
+        }),
       );
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final tag = (data['tag_name'] as String? ?? '').trim();
-    final version = _normalizeVersion(tag);
+    final Map<String, dynamic> data;
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) {
+        throw const FormatException('Release response is not an object');
+      }
+      data = decoded.cast<String, dynamic>();
+    } catch (_) {
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorInvalidRelease'),
+      );
+    }
 
-    if (version.isEmpty || _compareVersions(version, currentVersion) <= 0) {
+    final tag = (data['tag_name'] as String? ?? '').trim();
+    final latestVersion = SemanticVersion.tryParse(tag);
+    if (latestVersion == null) {
+      throw UpdateCheckException(
+        AppLocalizations.translate('update.errorInvalidRelease'),
+      );
+    }
+
+    // Equal versions (1.3.0 == v1.3.0) and installed versions newer than the
+    // published release must not offer an update. Pre-release precedence and
+    // build metadata are handled by SemanticVersion:
+    //   1.3.0-beta < 1.3.0 < 1.3.1 < 1.4.0 < 1.10.0 < 2.0.0
+    if (!latestVersion.isNewerThan(currentVersion)) {
       return null;
     }
 
     final assets = (data['assets'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>();
-    final installer = assets.firstWhere(
-      (asset) =>
-          (asset['name'] as String? ?? '').toLowerCase().endsWith('.exe'),
-      orElse: () => const <String, dynamic>{},
-    );
+        .whereType<Map>()
+        .map((asset) => asset.cast<String, dynamic>())
+        .toList();
+    final installer = _findInstaller(assets);
 
     final releasePageUrl = (data['html_url'] as String? ?? '').trim();
     final downloadUrl = (installer['browser_download_url'] as String? ?? '')
         .trim();
 
     return UpdateInfo(
-      version: version,
+      version: latestVersion.toString(),
       releaseNotes: (data['body'] as String? ?? '').trim(),
       downloadUrl: downloadUrl,
       releasePageUrl: releasePageUrl.isEmpty
@@ -102,66 +178,64 @@ class UpdateService {
     await openUrl(update.releasePageUrl);
   }
 
-  /// Открывает ссылку в системном браузере.
+  /// Открывает ссылку в системном браузере на любой платформе.
   Future<void> openUrl(String url) async {
     if (url.isEmpty) {
-      throw Exception('Пустая ссылка');
+      throw Exception(AppLocalizations.translate('update.errorEmptyLink'));
     }
 
-    if (Platform.isWindows) {
-      await Process.start('rundll32', [
-        'url.dll,FileProtocolHandler',
-        url,
-      ], mode: ProcessStartMode.detached);
-      return;
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      throw Exception(AppLocalizations.translate('update.errorEmptyLink'));
     }
 
-    if (Platform.isMacOS) {
-      await Process.start('open', [url], mode: ProcessStartMode.detached);
-      return;
+    final launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
+    if (!launched) {
+      throw Exception(AppLocalizations.translate('update.errorUnsupported'));
     }
-
-    if (Platform.isLinux) {
-      await Process.start('xdg-open', [url], mode: ProcessStartMode.detached);
-      return;
-    }
-
-    throw UnsupportedError(
-      'Открытие ссылок не поддерживается на этой платформе',
-    );
   }
 
-  String _normalizeVersion(String value) {
-    return value
-        .trim()
-        .replaceFirst(RegExp(r'^[vV]'), '')
-        .split('+')
-        .first
-        .split('-')
-        .first
-        .trim();
-  }
+  Map<String, dynamic> _findInstaller(List<Map<String, dynamic>> assets) {
+    if (assets.isEmpty) return const <String, dynamic>{};
 
-  int _compareVersions(String a, String b) {
-    final first = _versionParts(a);
-    final second = _versionParts(b);
-    final length = first.length > second.length ? first.length : second.length;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      const preferredApks = [
+        'app-release.apk',
+        'app-arm64-v8a-release.apk',
+        'app-armeabi-v7a-release.apk',
+        'app-x86_64-release.apk',
+      ];
 
-    for (var i = 0; i < length; i++) {
-      final firstPart = i < first.length ? first[i] : 0;
-      final secondPart = i < second.length ? second[i] : 0;
-      if (firstPart != secondPart) {
-        return firstPart.compareTo(secondPart);
+      for (final name in preferredApks) {
+        final match = assets.firstWhere(
+          (asset) => (asset['name'] as String? ?? '').toLowerCase() == name,
+          orElse: () => const <String, dynamic>{},
+        );
+        if (match.isNotEmpty) return match;
       }
     }
 
-    return 0;
+    for (final suffix in _assetSuffixesForPlatform()) {
+      final match = assets.firstWhere(
+        (asset) =>
+            (asset['name'] as String? ?? '').toLowerCase().endsWith(suffix),
+        orElse: () => const <String, dynamic>{},
+      );
+      if (match.isNotEmpty) return match;
+    }
+
+    return const <String, dynamic>{};
   }
 
-  List<int> _versionParts(String value) {
-    return _normalizeVersion(value)
-        .split('.')
-        .map((part) => int.tryParse(part.replaceAll(RegExp(r'\D.*$'), '')) ?? 0)
-        .toList();
+  List<String> _assetSuffixesForPlatform() {
+    if (kIsWeb) return const [];
+
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows => const ['.exe'],
+      TargetPlatform.android => const ['.apk'],
+      TargetPlatform.macOS => const ['.dmg', '.zip'],
+      TargetPlatform.linux => const ['.appimage', '.deb', '.tar.gz'],
+      _ => const [],
+    };
   }
 }

@@ -1,5 +1,10 @@
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:note_app/providers/note_provider.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/note_provider.dart';
+import 'package:inkflow/services/note_content.dart';
+import 'package:inkflow/services/note_sorting.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class ArchiveScreen extends StatelessWidget {
@@ -8,22 +13,17 @@ class ArchiveScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final noteProvider = context.watch<NoteProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
     final archive = noteProvider.archive;
+    final l10n = context.l10n;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
     return Scaffold(
       body: archive.isEmpty
-          ? const Center(
-              child: Text(
-                'Архив пустой',
-                style: TextStyle(fontFamily: 'Oswald'),
-              ),
-            )
+          ? Center(child: Text(l10n.t('archive.empty'), style: TextStyle()))
           : ListView.separated(
               separatorBuilder: (context, index) => const SizedBox(height: 10),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 10.0,
-              ),
+              padding: EdgeInsets.fromLTRB(16, 10, 16, 10 + bottomInset),
               itemCount: noteProvider.archive.length,
               itemBuilder: (context, index) {
                 final note = noteProvider.archive[index];
@@ -55,49 +55,75 @@ class ArchiveScreen extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontFamily: 'Jura',
                       fontFamilyFallback: const ['Apple'],
                       color: textColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: Text(
-                    note.content,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'Jura',
-                      fontFamilyFallback: const ['Apple'],
-                      color: textColor.withValues(alpha: 0.8),
-                      fontWeight: FontWeight.bold,
-                    ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        l10n.t('note.createdAt', {
+                          'date': formatNoteDateTime(
+                            context,
+                            note.createdAt ?? DateTime.now(),
+                          ),
+                        }),
+                        style: TextStyle(
+                          fontFamily: themeProvider.fontFamily,
+                          fontSize: 11,
+                          color: textColor.withValues(alpha: 0.7),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        NoteContent.plainText(note.content),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamilyFallback: const ['Apple'],
+                          color: textColor.withValues(alpha: 0.8),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: Icon(Icons.restore, color: Colors.blue),
+                        icon: Icon(
+                          FluentIcons.arrow_counterclockwise_24_regular,
+                          color: Colors.blue,
+                        ),
                         onPressed: () {
                           noteProvider.restoreNoteFromTrash(note);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: const Text(
-                                'Заметка восстановлена',
-                                style: TextStyle(fontFamily: 'Oswald'),
+                              content: Text(
+                                l10n.t('archive.restored'),
+                                style: TextStyle(),
                               ),
                             ),
                           );
                         },
                       ),
                       IconButton(
-                        icon: Icon(Icons.delete_forever, color: Colors.red),
+                        icon: Icon(
+                          FluentIcons.delete_24_regular,
+                          color: Colors.red,
+                        ),
                         onPressed: () {
                           noteProvider.moveNoteToTrash(note);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: const Text(
-                                'Заметка перемещена в корзину',
-                                style: TextStyle(fontFamily: 'Oswald'),
+                              content: Text(
+                                l10n.t('archive.movedToTrash'),
+                                style: TextStyle(),
                               ),
                             ),
                           );

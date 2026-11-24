@@ -1,6 +1,10 @@
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/shared_preferences/theme_provider.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/note_provider.dart';
+import 'package:inkflow/services/note_content.dart';
+import 'package:inkflow/services/note_sorting.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
 import 'package:provider/provider.dart';
 
 class TrashScreen extends StatelessWidget {
@@ -12,37 +16,47 @@ class TrashScreen extends StatelessWidget {
     final themeProvider = context.watch<ThemeProvider>();
     final trashNotes = noteProvider.trashNotes;
     final trashFolders = noteProvider.trashFolders;
+    final l10n = context.l10n;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
     return DefaultTabController(
       length: 2,
       child: Column(
         children: [
           TabBar(
-            labelStyle: TextStyle(fontFamily: 'Oswald'),
-            unselectedLabelStyle: TextStyle(fontFamily: 'Oswald'),
-            labelColor: themeProvider.primaryColor,
-            indicatorColor: themeProvider.primaryColor,
+            labelStyle: TextStyle(),
+            unselectedLabelStyle: TextStyle(),
+            labelColor: Theme.of(context).colorScheme.primary,
+            indicatorColor: Theme.of(context).colorScheme.primary,
             tabs: [
-              Tab(text: 'Заметки', icon: Icon(Icons.note)),
-              Tab(text: 'Папки', icon: Icon(Icons.folder)),
+              Tab(
+                text: l10n.t('trash.notes'),
+                icon: Icon(FluentIcons.note_24_regular),
+              ),
+              Tab(
+                text: l10n.t('trash.folders'),
+                icon: Icon(FluentIcons.folder_24_regular),
+              ),
             ],
           ),
           Expanded(
             child: TabBarView(
               children: [
                 trashNotes.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          'Заметок в корзине нет',
-                          style: TextStyle(fontFamily: 'Oswald'),
+                          l10n.t('trash.noNotes'),
+                          style: TextStyle(),
                         ),
                       )
                     : ListView.separated(
                         separatorBuilder: (context, index) =>
                             const SizedBox(height: 10),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16.0,
-                          vertical: 10.0,
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          10,
+                          16,
+                          10 + bottomInset,
                         ),
                         itemCount: trashNotes.length,
                         itemBuilder: (context, index) {
@@ -76,37 +90,59 @@ class TrashScreen extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontFamily: 'Jura',
                                 fontFamilyFallback: const ['Apple'],
                                 color: textColor,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            subtitle: Text(
-                              note.content,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontFamily: 'Jura',
-                                fontFamilyFallback: const ['Apple'],
-                                color: textColor.withValues(alpha: 0.8),
-                                fontWeight: FontWeight.bold,
-                              ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  l10n.t('note.createdAt', {
+                                    'date': formatNoteDateTime(
+                                      context,
+                                      note.createdAt ?? DateTime.now(),
+                                    ),
+                                  }),
+                                  style: TextStyle(
+                                    fontFamily: themeProvider.fontFamily,
+                                    fontSize: 11,
+                                    color: textColor.withValues(alpha: 0.7),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  NoteContent.plainText(note.content),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamilyFallback: const ['Apple'],
+                                    color: textColor.withValues(alpha: 0.8),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 IconButton(
-                                  icon: Icon(Icons.restore, color: Colors.blue),
+                                  icon: Icon(
+                                    FluentIcons
+                                        .arrow_counterclockwise_24_regular,
+                                    color: Colors.blue,
+                                  ),
                                   onPressed: () {
                                     noteProvider.restoreNoteFromTrash(note);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: const Text(
-                                          'Заметка восстановлена',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        content: Text(
+                                          l10n.t('trash.restored'),
+                                          style: TextStyle(),
                                         ),
                                       ),
                                     );
@@ -114,24 +150,20 @@ class TrashScreen extends StatelessWidget {
                                 ),
                                 IconButton(
                                   icon: Icon(
-                                    Icons.delete_forever,
+                                    FluentIcons.delete_24_regular,
                                     color: Colors.red,
                                   ),
                                   onPressed: () {
                                     showDialog(
                                       context: context,
                                       builder: (context) => AlertDialog(
-                                        title: const Text(
-                                          'Удалить навсегда',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        title: Text(
+                                          l10n.t('trash.deleteForever'),
+                                          style: TextStyle(),
                                         ),
-                                        content: const Text(
-                                          'Вы действительно хотите удалить заметку навсегда?',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        content: Text(
+                                          l10n.t('trash.confirmDeleteNote'),
+                                          style: TextStyle(),
                                         ),
                                         actions: [
                                           ElevatedButton(
@@ -154,10 +186,9 @@ class TrashScreen extends StatelessWidget {
                                               Navigator.pop(context);
                                             },
                                             child: Text(
-                                              "Отмена",
+                                              l10n.t('common.cancel'),
                                               style: TextStyle(
                                                 color: Colors.green,
-                                                fontFamily: 'Oswald',
                                                 fontSize: 18,
                                               ),
                                             ),
@@ -184,20 +215,19 @@ class TrashScreen extends StatelessWidget {
                                                 context,
                                               ).showSnackBar(
                                                 SnackBar(
-                                                  content: const Text(
-                                                    'Заметка удалена навсегда',
-                                                    style: TextStyle(
-                                                      fontFamily: 'Oswald',
+                                                  content: Text(
+                                                    l10n.t(
+                                                      'trash.noteDeletedForever',
                                                     ),
+                                                    style: TextStyle(),
                                                   ),
                                                 ),
                                               );
                                             },
                                             child: Text(
-                                              "Удалить",
+                                              l10n.t('common.delete'),
                                               style: TextStyle(
                                                 fontSize: 18,
-                                                fontFamily: 'Oswald',
                                                 color: Colors.white,
                                               ),
                                             ),
@@ -214,18 +244,20 @@ class TrashScreen extends StatelessWidget {
                       ),
 
                 trashFolders.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Text(
-                          'Папок в корзине нет',
-                          style: TextStyle(fontFamily: 'Oswald'),
+                          l10n.t('trash.noFolders'),
+                          style: TextStyle(),
                         ),
                       )
                     : ListView.separated(
                         separatorBuilder: (context, index) =>
                             const SizedBox(height: 10),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16.0,
-                          vertical: 10.0,
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          10,
+                          16,
+                          10 + bottomInset,
                         ),
                         itemCount: trashFolders.length,
                         itemBuilder: (context, index) {
@@ -252,7 +284,6 @@ class TrashScreen extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontFamily: 'Jura',
                                 fontFamilyFallback: ['Apple'],
                                 // color: Colors.black,
                                 // color: note.textColorValue != null
@@ -265,16 +296,18 @@ class TrashScreen extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 IconButton(
-                                  icon: Icon(Icons.restore, color: Colors.blue),
+                                  icon: Icon(
+                                    FluentIcons
+                                        .arrow_counterclockwise_24_regular,
+                                    color: Colors.blue,
+                                  ),
                                   onPressed: () {
                                     noteProvider.restoreFolderFromTrash(folder);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: const Text(
-                                          'Заметка восстановлена',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        content: Text(
+                                          l10n.t('trash.restored'),
+                                          style: TextStyle(),
                                         ),
                                       ),
                                     );
@@ -282,24 +315,20 @@ class TrashScreen extends StatelessWidget {
                                 ),
                                 IconButton(
                                   icon: Icon(
-                                    Icons.delete_forever,
+                                    FluentIcons.delete_24_regular,
                                     color: Colors.red,
                                   ),
                                   onPressed: () {
                                     showDialog(
                                       context: context,
                                       builder: (context) => AlertDialog(
-                                        title: const Text(
-                                          'Удалить навсегда',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        title: Text(
+                                          l10n.t('trash.deleteForever'),
+                                          style: TextStyle(),
                                         ),
-                                        content: const Text(
-                                          'Вы действительно хотите удалить папку навсегда?',
-                                          style: TextStyle(
-                                            fontFamily: 'Oswald',
-                                          ),
+                                        content: Text(
+                                          l10n.t('trash.confirmDeleteFolder'),
+                                          style: TextStyle(),
                                         ),
                                         actions: [
                                           ElevatedButton(
@@ -322,10 +351,9 @@ class TrashScreen extends StatelessWidget {
                                               Navigator.pop(context);
                                             },
                                             child: Text(
-                                              "Отмена",
+                                              l10n.t('common.cancel'),
                                               style: TextStyle(
                                                 color: Colors.green,
-                                                fontFamily: 'Oswald',
                                                 fontSize: 18,
                                               ),
                                             ),
@@ -352,20 +380,19 @@ class TrashScreen extends StatelessWidget {
                                                 context,
                                               ).showSnackBar(
                                                 SnackBar(
-                                                  content: const Text(
-                                                    'Папка удалена навсегда',
-                                                    style: TextStyle(
-                                                      fontFamily: 'Oswald',
+                                                  content: Text(
+                                                    l10n.t(
+                                                      'trash.folderDeletedForever',
                                                     ),
+                                                    style: TextStyle(),
                                                   ),
                                                 ),
                                               );
                                             },
                                             child: Text(
-                                              "Удалить",
+                                              l10n.t('common.delete'),
                                               style: TextStyle(
                                                 fontSize: 18,
-                                                fontFamily: 'Oswald',
                                                 color: Colors.white,
                                               ),
                                             ),

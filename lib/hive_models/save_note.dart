@@ -37,6 +37,15 @@ class SaveNote extends HiveObject {
   @HiveField(10)
   bool? hasCustomTextColor;
 
+  /// Local creation time. Added in schema revision 1 for deterministic sorting
+  /// and date grouping. Older notes are migrated on startup.
+  @HiveField(11)
+  DateTime? createdAt;
+
+  /// Last edit time. Unlike [createdAt], this is updated when the note changes.
+  @HiveField(12)
+  DateTime? updatedAt;
+
   SaveNote({
     required this.title,
     required this.content,
@@ -49,6 +58,8 @@ class SaveNote extends HiveObject {
     this.attachments,
     this.hasCustomBackground,
     this.hasCustomTextColor,
+    this.createdAt,
+    this.updatedAt,
   });
 
   /// Старые заметки всегда сохраняли жёлтый фон, даже если его не выбирали.

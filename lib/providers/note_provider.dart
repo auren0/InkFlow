@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:note_app/hive_models/save_folder.dart';
-import 'package:note_app/hive_models/save_note.dart';
-import 'package:note_app/services/hive_service.dart';
+import 'package:inkflow/hive_models/save_folder.dart';
+import 'package:inkflow/hive_models/save_note.dart';
+import 'package:inkflow/services/hive_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 class NoteProvider with ChangeNotifier {
@@ -21,8 +21,21 @@ class NoteProvider with ChangeNotifier {
 
   List<SaveFolder> get folders => _foldersBox.values.toList();
 
+  Box<SaveNote> get notesBox => _notesBox;
+  Box<SaveNote> get archiveBox => _archiveBox;
+  Box<SaveNote> get trashNotesBox => _trashNotesBox;
+  Box<SaveFolder> get foldersBox => _foldersBox;
+  Box<SaveFolder> get trashFoldersBox => _trashFoldersBox;
+
+  /// Rebuilds views listening to this provider after a bulk operation such as
+  /// a backup import. Hive boxes are written directly by the backup service.
+  void refreshFromStorage() => notifyListeners();
+
   // ============== Notes Methods ==============
   Future<void> addNote(SaveNote note) async {
+    final now = DateTime.now();
+    note.createdAt ??= now;
+    note.updatedAt ??= note.createdAt;
     await _notesBox.add(note);
     notifyListeners();
   }
@@ -39,12 +52,16 @@ class NoteProvider with ChangeNotifier {
       ..audioTitles = newNote.audioTitles
       ..attachments = newNote.attachments
       ..hasCustomBackground = newNote.hasCustomBackground
-      ..hasCustomTextColor = newNote.hasCustomTextColor;
+      ..hasCustomTextColor = newNote.hasCustomTextColor
+      // createdAt deliberately untouched: editing a note must not reorder the
+      // list or move it to another date group.
+      ..updatedAt = DateTime.now();
     await oldNote.save();
     notifyListeners();
   }
 
   Future<void> saveNoteChanges(SaveNote note) async {
+    note.updatedAt = DateTime.now();
     await note.save();
     notifyListeners();
   }
@@ -74,6 +91,8 @@ class NoteProvider with ChangeNotifier {
       attachments: note.attachments?.toList(),
       hasCustomBackground: note.hasCustomBackground,
       hasCustomTextColor: note.hasCustomTextColor,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
     );
     await to.add(newNote);
     await note.delete();

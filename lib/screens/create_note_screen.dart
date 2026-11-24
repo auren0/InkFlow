@@ -1,17 +1,26 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart'
+    show listEquals, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:note_app/hive_models/save_note.dart';
-import 'package:note_app/providers/note_provider.dart';
-import 'package:note_app/shared_preferences/theme_provider.dart';
-import 'package:note_app/widgets/audio_player_widget.dart';
+import 'package:inkflow/hive_models/save_note.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/note_provider.dart';
+import 'package:inkflow/services/attachment_names.dart';
+import 'package:inkflow/services/debouncer.dart';
+import 'package:inkflow/services/note_content.dart';
+import 'package:inkflow/services/note_sorting.dart';
+import 'package:inkflow/shared_preferences/theme_provider.dart';
+import 'package:inkflow/widgets/audio_player_widget.dart';
+import 'package:inkflow/widgets/note_format_toolbar.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -19,6 +28,8 @@ import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 
 enum OptionAction { save, saveAndExit, cancel }
+
+enum AutoSaveStatus { idle, unsaved, saving, saved, error }
 
 class CreateNoteScreen extends StatefulWidget {
   final SaveNote? note;
@@ -30,9 +41,12 @@ class CreateNoteScreen extends StatefulWidget {
   State<CreateNoteScreen> createState() => _CreateNoteScreenState();
 }
 
-class _CreateNoteScreenState extends State<CreateNoteScreen> {
+class _CreateNoteScreenState extends State<CreateNoteScreen>
+    with WidgetsBindingObserver {
   final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _contentController = TextEditingController();
+  late final QuillController _contentController;
+  final FocusNode _editorFocusNode = FocusNode();
+  final ScrollController _editorScrollController = ScrollController();
 
   late final Color _defaultBackgroundColor;
   late final Color _defaultTextColor;
@@ -56,21 +70,39 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   List<String> _attachments = [];
 
   bool _hasChanges = false;
-  bool _isSaving = false;
+  AutoSaveStatus _saveStatus = AutoSaveStatus.idle;
+  DateTime? _lastSavedTime;
+  late DateTime _createdAt;
+  String _lastSavedContent = '';
+  late final Debouncer _autoSaveDebouncer = Debouncer(_autoSaveDelay);
+  Future<void> _saveChain = Future.value();
+  StreamSubscription<dynamic>? _contentChangesSubscription;
+
+  static const Duration _autoSaveDelay = Duration(milliseconds: 600);
 
   bool _defaultsInitialized = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _note = widget.note;
     _folderId = widget.folderId ?? widget.note?.folderId;
     _defaultNoteTitle = _formatDefaultTitle(DateTime.now());
 
+    final initialDocument = NoteContent.parse(_note?.content);
+    _contentController = QuillController(
+      document: initialDocument,
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    _lastSavedContent = NoteContent.encode(initialDocument);
+
     if (_note != null) {
+      _createdAt = _note!.createdAt ?? DateTime.now();
+      _lastSavedTime = _note!.updatedAt ?? _note!.createdAt;
+      _saveStatus = AutoSaveStatus.saved;
       _titleController.text = _note!.title;
-      _contentController.text = _note!.content;
       if (_note!.backgroundImagePath != null &&
           _note!.backgroundImagePath!.isNotEmpty) {
         _selectedImage = File(_note!.backgroundImagePath!);
@@ -87,16 +119,26 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
       _textColor = _hasCustomTextColor ? Color(_note!.textColorValue!) : null;
 
       _audioPaths = _note!.audioNotes?.toList() ?? [];
+      final defaultAudioTitle = AppLocalizations.translate('note.audioNote');
       _audioTitles =
           _note!.audioTitles?.toList() ??
-          List.filled(_note!.audioNotes?.length ?? 0, 'Аудио заметка');
+          List.filled(_note!.audioNotes?.length ?? 0, defaultAudioTitle);
       _attachments = _note!.attachments?.toList() ?? [];
     } else {
+      _createdAt = DateTime.now();
+      _lastSavedTime = null;
+      _saveStatus = AutoSaveStatus.idle;
       _titleController.text = _defaultNoteTitle;
     }
 
     _titleController.addListener(_onTextChanged);
-    _contentController.addListener(_onTextChanged);
+    _contentChangesSubscription = _contentController.document.changes.listen(
+      (_) => _onTextChanged(),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshHasChanges();
+    });
   }
 
   @override
@@ -111,6 +153,16 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     _defaultTextColor = theme.colorScheme.onSurface;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _autoSaveDebouncer.cancel();
+      unawaited(_saveNote(exit: false, notify: false, skipEmpty: true));
+    }
+  }
+
   String _formatDefaultTitle(DateTime date) {
     String twoDigits(int value) => value.toString().padLeft(2, '0');
 
@@ -120,22 +172,43 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autoSaveDebouncer.dispose();
     _titleController.removeListener(_onTextChanged);
-    _contentController.removeListener(_onTextChanged);
+    _contentChangesSubscription?.cancel();
     _titleController.dispose();
     _contentController.dispose();
+    _editorFocusNode.dispose();
+    _editorScrollController.dispose();
     _record.dispose();
     super.dispose();
   }
 
   // ============================ Отслеживание изменений ============================
 
+  String get _serializedContent =>
+      NoteContent.encode(_contentController.document);
+
+  bool get _hasSomethingToSave {
+    if (_note != null) return true;
+
+    final title = _titleController.text;
+    final hasUserTitle = title.trim().isNotEmpty && title != _defaultNoteTitle;
+
+    return hasUserTitle ||
+        _contentController.document.toPlainText().trim().isNotEmpty ||
+        _selectedImage != null ||
+        _audioPaths.isNotEmpty ||
+        _attachments.isNotEmpty;
+  }
+
   bool _computeHasChanges() {
     final note = _note;
+    final contentChanged = _serializedContent != _lastSavedContent;
 
     if (note == null) {
       return _titleController.text != _defaultNoteTitle ||
-          _contentController.text.isNotEmpty ||
+          contentChanged ||
           _selectedImage != null ||
           _folderId != widget.folderId ||
           _hasCustomBackground ||
@@ -144,12 +217,13 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           _attachments.isNotEmpty;
     }
 
+    final defaultAudioTitle = AppLocalizations.translate('note.audioNote');
     final noteAudioTitles =
         note.audioTitles ??
-        List.filled(note.audioNotes?.length ?? 0, 'Аудио заметка');
+        List.filled(note.audioNotes?.length ?? 0, defaultAudioTitle);
 
     return _titleController.text != note.title ||
-        _contentController.text != note.content ||
+        contentChanged ||
         _folderId != note.folderId ||
         _selectedImage?.path != note.backgroundImagePath ||
         _hasCustomBackground != note.usesCustomBackground ||
@@ -166,169 +240,170 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   void _refreshHasChanges() {
     final changed = _computeHasChanges();
     if (changed != _hasChanges && mounted) {
-      setState(() => _hasChanges = changed);
+      setState(() {
+        _hasChanges = changed;
+        if (!changed && _saveStatus != AutoSaveStatus.saving) {
+          _saveStatus = (_note != null || _lastSavedTime != null)
+              ? AutoSaveStatus.saved
+              : AutoSaveStatus.idle;
+        }
+      });
     }
   }
 
-  void _onTextChanged() => _refreshHasChanges();
+  void _notifyChanged() {
+    _refreshHasChanges();
+    if (_hasChanges) {
+      if (_saveStatus != AutoSaveStatus.saving && mounted) {
+        setState(() => _saveStatus = AutoSaveStatus.unsaved);
+      }
+      _scheduleAutoSave();
+    }
+  }
 
-  // ============================ Выход и сохранение ============================
+  void _onTextChanged() {
+    _notifyChanged();
+  }
 
-  Future<OptionAction> _showUnsavedChangesDialog() async {
+  void _scheduleAutoSave() {
+    _autoSaveDebouncer.schedule(() {
+      unawaited(_saveNote(exit: false, notify: false, skipEmpty: true));
+    });
+  }
+
+  Future<bool> _showUnsavedChangesDialog() async {
+    final l10n = context.l10n;
     final theme = Theme.of(context);
 
-    final result = await showDialog<OptionAction>(
+    final result = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (dialogContext) {
         return AlertDialog(
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 24,
-          ),
-          actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text(
-            'Вы изменили заметку!',
-            style: TextStyle(fontFamily: 'Oswald'),
-          ),
+          title: Text(l10n.t('note.unsavedTitle'), style: const TextStyle()),
           content: Text(
-            'Хотите ли вы сохранить текущие изменения?',
-            style: TextStyle(
-              fontFamily: 'Oswald',
-              color: theme.colorScheme.onSurface,
-            ),
+            l10n.t('note.unsavedQuestion'),
+            style: const TextStyle(),
           ),
           actions: [
-            SizedBox(
-              width: double.infinity,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _dialogActionButton(
-                          label: 'Сохранить',
-                          backgroundColor: const Color(0xFF16A34A),
-                          onPressed: () =>
-                              Navigator.pop(dialogContext, OptionAction.save),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _dialogActionButton(
-                          label: 'Сохранить и выйти',
-                          backgroundColor: const Color(0xFF2563EB),
-                          onPressed: () => Navigator.pop(
-                            dialogContext,
-                            OptionAction.saveAndExit,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: _dialogActionButton(
-                      label: 'Отмена',
-                      backgroundColor: const Color(0xFF64748B),
-                      onPressed: () =>
-                          Navigator.pop(dialogContext, OptionAction.cancel),
-                    ),
-                  ),
-                ],
-              ),
+            _dialogActionButton(
+              label: l10n.t('common.cancel'),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              foregroundColor: theme.colorScheme.onSurface,
+              onPressed: () => Navigator.pop(dialogContext, false),
+            ),
+            _dialogActionButton(
+              label: l10n.t('common.save'),
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
+              onPressed: () => Navigator.pop(dialogContext, true),
             ),
           ],
         );
       },
     );
 
-    return result ?? OptionAction.cancel;
+    return result ?? false;
   }
 
   Widget _dialogActionButton({
     required String label,
     required Color backgroundColor,
     required VoidCallback onPressed,
+    Color foregroundColor = Colors.white,
   }) {
-    return SizedBox(
-      height: 50,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        onPressed: onPressed,
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            label,
-            maxLines: 1,
-            style: const TextStyle(fontFamily: 'Oswald', fontSize: 16),
-          ),
-        ),
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 20.0),
+        backgroundColor: backgroundColor,
+        foregroundColor: foregroundColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
+      onPressed: onPressed,
+      child: Text(label, style: const TextStyle(fontSize: 18)),
     );
   }
 
   Future<void> _handleExit() async {
-    if (!_hasChanges) {
-      if (mounted) Navigator.pop(context);
-      return;
+    _autoSaveDebouncer.cancel();
+
+    if (_hasChanges && _hasSomethingToSave) {
+      final saved = await _saveNote(exit: false, notify: false);
+      if (!saved && mounted) {
+        final shouldExit = await _showUnsavedChangesDialog();
+        if (shouldExit && mounted) {
+          Navigator.pop(context);
+        }
+        return;
+      }
     }
 
-    final action = await _showUnsavedChangesDialog();
-    if (!mounted) return;
-
-    switch (action) {
-      case OptionAction.save:
-        await _saveNote(exit: false);
-        break;
-      case OptionAction.saveAndExit:
-        await _saveNote(exit: true);
-        break;
-      case OptionAction.cancel:
-        break;
+    if (mounted) {
+      Navigator.pop(context);
     }
   }
 
-  Future<void> _saveNote({bool exit = true}) async {
-    if (_isSaving) return;
+  // ============================ Сохранение ============================
 
+  Future<bool> _saveNote({
+    required bool exit,
+    bool notify = true,
+    bool skipEmpty = false,
+  }) {
+    _autoSaveDebouncer.cancel();
+
+    final completer = Completer<bool>();
+    _saveChain = _saveChain.then((_) async {
+      try {
+        final result = await _performSave(
+          exit: exit,
+          notify: notify,
+          skipEmpty: skipEmpty,
+        );
+        completer.complete(result);
+      } catch (e, stack) {
+        completer.completeError(e, stack);
+      }
+    });
+
+    return completer.future;
+  }
+
+  Future<bool> _performSave({
+    required bool exit,
+    required bool notify,
+    required bool skipEmpty,
+  }) async {
     final title = _titleController.text;
-    final hasUserTitle = title.trim().isNotEmpty && title != _defaultNoteTitle;
-    final hasSomething =
-        hasUserTitle ||
-        _contentController.text.isNotEmpty ||
-        _selectedImage != null ||
-        _audioPaths.isNotEmpty ||
-        _attachments.isNotEmpty;
+    final content = _serializedContent;
+    final l10n = context.l10n;
 
-    if (!hasSomething) {
-      _showSnackBar('Пустую заметку сохранить нельзя');
-      return;
+    if (!_hasSomethingToSave) {
+      if (skipEmpty) return false;
+      if (notify) {
+        _showSnackBar(l10n.t('note.emptyCannotSave'));
+      }
+      return false;
     }
 
-    setState(() => _isSaving = true);
+    if (mounted) {
+      setState(() {
+        _saveStatus = AutoSaveStatus.saving;
+      });
+    }
 
     try {
       final noteProvider = context.read<NoteProvider>();
       final note = _note;
 
       if (note == null) {
+        final now = DateTime.now();
         final newNote = SaveNote(
           title: title,
-          content: _contentController.text,
+          content: content,
           folderId: _folderId,
           backgroundImagePath: _selectedImage?.path,
           textColorValue: _hasCustomTextColor ? _textColor?.toARGB32() : null,
@@ -340,13 +415,15 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           attachments: _attachments.toList(),
           hasCustomBackground: _hasCustomBackground,
           hasCustomTextColor: _hasCustomTextColor,
+          createdAt: _createdAt,
+          updatedAt: now,
         );
         await noteProvider.addNote(newNote);
         _note = newNote;
       } else {
         note
           ..title = title
-          ..content = _contentController.text
+          ..content = content
           ..folderId = _folderId
           ..backgroundImagePath = _selectedImage?.path
           ..textColorValue = _hasCustomTextColor ? _textColor?.toARGB32() : null
@@ -357,37 +434,51 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           ..audioTitles = _audioTitles.toList()
           ..attachments = _attachments.toList()
           ..hasCustomBackground = _hasCustomBackground
-          ..hasCustomTextColor = _hasCustomTextColor;
+          ..hasCustomTextColor = _hasCustomTextColor
+          ..updatedAt = DateTime.now();
         await noteProvider.saveNoteChanges(note);
       }
 
-      if (!mounted) return;
+      if (!mounted) return true;
 
-      setState(() => _hasChanges = false);
+      _lastSavedContent = content;
+      _lastSavedTime = _note?.updatedAt ?? DateTime.now();
+      final stillHasChanges = _computeHasChanges();
+
+      setState(() {
+        _hasChanges = stillHasChanges;
+        _saveStatus = stillHasChanges
+            ? AutoSaveStatus.unsaved
+            : AutoSaveStatus.saved;
+      });
+
+      if (stillHasChanges) {
+        _scheduleAutoSave();
+      }
 
       if (exit) {
         Navigator.pop(context);
-      } else {
-        _showSnackBar('Заметка сохранена');
+      } else if (notify) {
+        _showSnackBar(l10n.t('note.saved'));
       }
+
+      return true;
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Не удалось сохранить заметку: $e');
+        setState(() => _saveStatus = AutoSaveStatus.error);
+        if (notify) {
+          _showSnackBar(l10n.t('note.saveFailed', {'error': e}));
+        }
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      return false;
     }
   }
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontFamily: 'Oswald')),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message, style: const TextStyle())));
   }
 
   // ============================ Изображение ============================
@@ -400,7 +491,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
       setState(() {
         _selectedImage = File(pickedFile.path);
       });
-      _refreshHasChanges();
+      _notifyChanged();
     }
   }
 
@@ -412,7 +503,9 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     await audioDir.create(recursive: true);
 
     final isDesktop =
-        Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
     final extension = isDesktop ? 'wav' : 'm4a';
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     return p.join(audioDir.path, 'note_audio_$timestamp.$extension');
@@ -421,12 +514,14 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   Future<void> _startRecording() async {
     try {
       if (!await _record.hasPermission()) {
-        _showSnackBar('Нет разрешения на использование микрофона');
+        _showSnackBar(AppLocalizations.translate('note.micPermission'));
         return;
       }
 
       final isDesktop =
-          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+          defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS;
       final path = await _getAudioFilePath();
 
       await _record.start(
@@ -441,7 +536,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
       if (!mounted) return;
       setState(() => _isRecording = true);
     } catch (e) {
-      _showSnackBar('Не удалось начать запись: $e');
+      _showSnackBar(context.l10n.t('note.recordStartFailed', {'error': e}));
     }
   }
 
@@ -454,15 +549,15 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
         _isRecording = false;
         if (path != null) {
           _audioPaths.add(path);
-          _audioTitles.add('Аудио заметка');
+          _audioTitles.add(AppLocalizations.translate('note.audioNote'));
         }
       });
-      _refreshHasChanges();
+      _notifyChanged();
     } catch (e) {
       if (mounted) {
         setState(() => _isRecording = false);
       }
-      _showSnackBar('Не удалось остановить запись: $e');
+      _showSnackBar(context.l10n.t('note.recordStopFailed', {'error': e}));
     }
   }
 
@@ -481,7 +576,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
         _audioTitles.removeAt(index);
       }
     });
-    _refreshHasChanges();
+    _notifyChanged();
 
     final file = File(path);
     if (await file.exists()) {
@@ -493,12 +588,15 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     setState(() {
       if (_audioTitles.length <= index) {
         _audioTitles.addAll(
-          List.filled(index - _audioTitles.length + 1, 'Аудио заметка'),
+          List.filled(
+            index - _audioTitles.length + 1,
+            AppLocalizations.translate('note.audioNote'),
+          ),
         );
       }
       _audioTitles[index] = newTitle;
     });
-    _refreshHasChanges();
+    _notifyChanged();
   }
 
   Widget _buildAudioWidget(String path, int index) {
@@ -508,7 +606,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
       filePath: path,
       audioTitle: _audioTitles.length > index
           ? _audioTitles[index]
-          : 'Аудио заметка',
+          : AppLocalizations.translate('note.audioNote'),
       onTitleChanged: (newTitle) => _updateAudioTitle(index, newTitle),
       onDelete: () => _removeAudioPath(path, index),
       themeProvider: themeProvider,
@@ -520,7 +618,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   Future<void> _pickAttachments() async {
     try {
       final files = await FilePicker.pickFiles(
-        dialogTitle: 'Добавить файлы к заметке',
+        dialogTitle: context.l10n.t('note.addFilesTitle'),
       );
 
       if (files.isEmpty) return;
@@ -551,23 +649,27 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
 
       if (!mounted) return;
       setState(() => _attachments.addAll(addedPaths));
-      _refreshHasChanges();
+      _notifyChanged();
     } catch (e) {
-      _showSnackBar('Не удалось добавить файлы: $e');
+      _showSnackBar(context.l10n.t('note.addFilesFailed', {'error': e}));
     }
   }
 
   Future<void> _openAttachment(String path) async {
     final result = await OpenFilex.open(path);
     if (result.type != ResultType.done) {
-      _showSnackBar('Не удалось открыть файл: ${result.message}');
+      _showSnackBar(
+        AppLocalizations.translate('note.openFileFailed', {
+          'error': result.message,
+        }),
+      );
     }
   }
 
   Future<void> _removeAttachment(int index) async {
     final path = _attachments[index];
     setState(() => _attachments.removeAt(index));
-    _refreshHasChanges();
+    _notifyChanged();
 
     final file = File(path);
     if (await file.exists()) {
@@ -576,32 +678,33 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
   }
 
   Widget _buildAttachmentWidget(String path, int index) {
-    final extension = p.extension(path).replaceFirst('.', '').toUpperCase();
+    final extension = attachmentExtensionLabel(path);
+    final displayName = attachmentDisplayName(path);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ListTile(
         leading: const Icon(FluentIcons.document_24_regular),
         title: Text(
-          p.basename(path),
+          displayName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontFamily: 'Oswald', fontSize: 16),
+          style: const TextStyle(fontSize: 16),
         ),
         subtitle: Text(
-          extension.isEmpty ? 'Файл' : extension,
-          style: const TextStyle(fontFamily: 'Oswald', fontSize: 12),
+          extension.isEmpty ? context.l10n.t('note.file') : extension,
+          style: const TextStyle(fontSize: 12),
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: 'Открыть',
+              tooltip: context.l10n.t('common.open'),
               onPressed: () => _openAttachment(path),
               icon: const Icon(FluentIcons.open_24_regular),
             ),
             IconButton(
-              tooltip: 'Удалить',
+              tooltip: context.l10n.t('common.delete'),
               onPressed: () => _removeAttachment(index),
               icon: const Icon(FluentIcons.delete_24_regular),
             ),
@@ -611,9 +714,10 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     );
   }
 
-  // ============================ Options dialog ============================
+  // ============================ Опции ============================
 
   Future<void> _showOptionsDialog() async {
+    final l10n = context.l10n;
     final action = await showDialog<OptionAction>(
       context: context,
       builder: (dialogContext) {
@@ -626,30 +730,18 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text(
-            'Дополнительные опции',
-            style: TextStyle(fontFamily: 'Oswald'),
-          ),
+          title: Text(l10n.t('note.options'), style: const TextStyle()),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // const SizedBox(height: 12),
-                // const Divider(),
                 ListTile(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  // contentPadding: EdgeInsets.zero,
                   leading: const Icon(FluentIcons.copy_24_regular),
-                  title: const Text(
-                    'Копировать текст',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
-                  subtitle: const Text(
-                    'Название и содержимое заметки',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
+                  title: Text(l10n.t('note.copyText')),
+                  subtitle: Text(l10n.t('note.copyTextSubtitle')),
                   onTap: () {
                     Navigator.pop(dialogContext);
                     _copyNoteText();
@@ -660,16 +752,9 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  // contentPadding: EdgeInsets.zero,
                   leading: const Icon(FluentIcons.save_24_regular),
-                  title: const Text(
-                    'Экспортировать в .txt',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
-                  subtitle: const Text(
-                    'Сохранить заметку как текстовый файл',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
+                  title: Text(l10n.t('note.exportTxt')),
+                  subtitle: Text(l10n.t('note.exportTxtSubtitle')),
                   onTap: () {
                     Navigator.pop(dialogContext);
                     _exportNoteAsText();
@@ -680,19 +765,12 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  // contentPadding: EdgeInsets.zero,
                   leading: const Icon(FluentIcons.folder_24_regular),
-                  title: const Text(
-                    'Переместить в папку',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
-                  subtitle: const Text(
-                    'Выбрать папку для заметки',
-                    style: TextStyle(fontFamily: 'Oswald'),
-                  ),
+                  title: Text(l10n.t('folder.moveTo')),
+                  subtitle: Text(l10n.t('note.moveToFolderSubtitle')),
                   onTap: () {
                     Navigator.pop(dialogContext);
-                    _showMoveToFolderDialog();
+                    _showMoveToFolderSheet();
                   },
                 ),
               ],
@@ -702,7 +780,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
             SizedBox(
               width: double.infinity,
               child: _dialogActionButton(
-                label: 'Отмена',
+                label: l10n.t('common.cancel'),
                 backgroundColor: const Color(0xFF64748B),
                 onPressed: () =>
                     Navigator.pop(dialogContext, OptionAction.cancel),
@@ -730,19 +808,20 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
 
   String _noteAsPlainText() {
     final title = _titleController.text;
-    final content = _contentController.text;
+    final content = NoteContent.plainText(_serializedContent);
     return [title, content].where((part) => part.isNotEmpty).join('\n\n');
   }
 
   Future<void> _copyNoteText() async {
     final text = _noteAsPlainText();
     if (text.trim().isEmpty) {
-      _showSnackBar('В заметке нет текста');
+      _showSnackBar(context.l10n.t('note.noTextInNote'));
       return;
     }
 
     await Clipboard.setData(ClipboardData(text: text));
-    _showSnackBar('Текст скопирован');
+    if (!mounted) return;
+    _showSnackBar(context.l10n.t('note.textCopied'));
   }
 
   Future<void> _exportNoteAsText() async {
@@ -753,73 +832,94 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
       final safeFileName = fileName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 
       final uri = await FilePicker.saveFile(
-        dialogTitle: 'Экспортировать заметку',
+        dialogTitle: context.l10n.t('note.exportDialogTitle'),
         fileName: '$safeFileName.txt',
         bytes: Uint8List.fromList(utf8.encode(text)),
         mimeType: 'text/plain',
       );
 
+      if (!mounted) return;
       if (uri != null) {
-        _showSnackBar('Заметка экспортирована');
+        _showSnackBar(context.l10n.t('note.exported'));
       }
     } catch (e) {
-      _showSnackBar('Не удалось экспортировать заметку: $e');
+      if (!mounted) return;
+      _showSnackBar(context.l10n.t('note.exportFailed', {'error': e}));
     }
   }
 
-  Future<void> _showMoveToFolderDialog() async {
+  Future<void> _showMoveToFolderSheet() async {
     final folders = context.read<NoteProvider>().folders;
+    final l10n = context.l10n;
 
-    final selected = await showDialog<Object?>(
+    final selected = await showModalBottomSheet<Object?>(
       context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (dialogContext) {
-        return SimpleDialog(
-          title: const Text(
-            'Переместить в папку',
-            style: TextStyle(fontFamily: 'Oswald'),
-          ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(dialogContext, 'no_folder'),
-              child: const Text(
-                'Без папки (на рабочий стол)',
-                style: TextStyle(fontFamily: 'Oswald'),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
+            ListTile(
+              leading: const Icon(
+                FluentIcons.desktop_24_regular,
+                color: Colors.teal,
+              ),
+              title: Text(
+                l10n.t('folder.none'),
+                style: const TextStyle(
+                  color: Colors.teal,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              onTap: () => Navigator.pop(dialogContext, 'no_folder'),
+            ),
+            const Divider(indent: 16, endIndent: 16),
             if (folders.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-                child: Text(
-                  'У вас пока нет папок',
-                  style: TextStyle(
-                    fontFamily: 'Oswald',
-                    color: Colors.grey,
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 24.0,
+                  horizontal: 16.0,
+                ),
+                child: Center(
+                  child: Text(
+                    l10n.t('folder.noFolders'),
+                    style: const TextStyle(fontSize: 16, color: Colors.grey),
                   ),
                 ),
               )
             else
-              ...folders.map(
-                (folder) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(dialogContext, folder.key),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 18,
-                        height: 18,
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: folders.length,
+                  itemBuilder: (context, index) {
+                    final folder = folders[index];
+                    return ListTile(
+                      leading: Container(
+                        width: 24,
+                        height: 24,
                         decoration: BoxDecoration(
                           color: Color(folder.colorValue),
                           shape: BoxShape.circle,
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          folder.title,
-                          style: const TextStyle(fontFamily: 'Oswald'),
-                        ),
-                      ),
-                    ],
-                  ),
+                      title: Text(folder.title),
+                      onTap: () => Navigator.pop(dialogContext, folder.key),
+                    );
+                  },
                 ),
               ),
           ],
@@ -832,17 +932,18 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     setState(() {
       _folderId = selected is int ? selected : null;
     });
-    _refreshHasChanges();
+    _notifyChanged();
     _showSnackBar(
       _folderId == null
-          ? 'Заметка будет сохранена без папки'
-          : 'Папка выбрана. Сохраните заметку',
+          ? context.l10n.t('folder.savedWithout')
+          : context.l10n.t('folder.selected'),
     );
   }
 
   // ============================ Диалоги оформления ============================
 
   void _showRestoreDialog(BuildContext context) {
+    final l10n = context.l10n;
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -853,9 +954,9 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text(
-            'Вы точно хотите вернуть задний фон по умолчанию?',
-            style: TextStyle(fontFamily: 'Oswald'),
+          title: Text(
+            l10n.t('note.restoreBackgroundQuestion'),
+            style: const TextStyle(),
           ),
           actions: [
             ElevatedButton(
@@ -871,9 +972,9 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                 ),
               ),
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(
-                'Отмена',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              child: Text(
+                l10n.t('common.cancel'),
+                style: const TextStyle(fontSize: 18),
               ),
             ),
             ElevatedButton(
@@ -890,12 +991,12 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
               ),
               onPressed: () {
                 setState(() => _selectedImage = null);
-                _refreshHasChanges();
+                _notifyChanged();
                 Navigator.pop(dialogContext);
               },
-              child: const Text(
-                'Восстановить',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
+              child: Text(
+                l10n.t('common.restore'),
+                style: const TextStyle(fontSize: 18),
               ),
             ),
           ],
@@ -906,74 +1007,44 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
 
   void _showBackgroundColorDialog(BuildContext context) {
     Color tempColor = _backgroundColor ?? _defaultBackgroundColor;
-    final themeProvider = context.read<ThemeProvider>();
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
 
     showDialog(
       context: context,
       barrierDismissible: true,
       builder: (dialogContext) {
-        final theme = Theme.of(context);
-
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text(
-            'Выберите цвет для заднего фона',
-            style: TextStyle(fontFamily: 'Oswald'),
-          ),
+          title: Text(l10n.t('common.selectColor'), style: const TextStyle()),
           content: SingleChildScrollView(
             child: ColorPicker(
-              pickerAreaBorderRadius: BorderRadius.circular(10),
               pickerColor: tempColor,
-              onColorChanged: (Color color) {
-                tempColor = color;
-              },
+              onColorChanged: (color) => tempColor = color,
+              pickerAreaHeightPercent: 0.8,
             ),
           ),
           actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14.0,
-                  horizontal: 20.0,
-                ),
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                foregroundColor: theme.colorScheme.onSurface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+            _dialogActionButton(
+              label: l10n.t('common.cancel'),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              foregroundColor: theme.colorScheme.onSurface,
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(
-                'Отмена',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
-              ),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14.0,
-                  horizontal: 20.0,
-                ),
-                backgroundColor: themeProvider.primaryColor,
-                foregroundColor: themeProvider.onPrimaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+            _dialogActionButton(
+              label: l10n.t('common.choose'),
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
               onPressed: () {
                 setState(() {
                   _backgroundColor = tempColor;
                   _hasCustomBackground = true;
                 });
-                _refreshHasChanges();
+                _notifyChanged();
                 Navigator.pop(dialogContext);
               },
-              child: const Text(
-                'Выбрать',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
-              ),
             ),
           ],
         );
@@ -983,74 +1054,44 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
 
   void _showTextColorDialog(BuildContext context) {
     Color tempColor = _textColor ?? _defaultTextColor;
-    final themeProvider = context.read<ThemeProvider>();
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
 
     showDialog(
       context: context,
       barrierDismissible: true,
       builder: (dialogContext) {
-        final theme = Theme.of(context);
-
         return AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text(
-            'Выберите цвет для текста',
-            style: TextStyle(fontFamily: 'Oswald'),
-          ),
+          title: Text(l10n.t('common.selectColor'), style: const TextStyle()),
           content: SingleChildScrollView(
             child: ColorPicker(
-              pickerAreaBorderRadius: BorderRadius.circular(10),
               pickerColor: tempColor,
-              onColorChanged: (Color color) {
-                tempColor = color;
-              },
+              onColorChanged: (color) => tempColor = color,
+              pickerAreaHeightPercent: 0.8,
             ),
           ),
           actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14.0,
-                  horizontal: 20.0,
-                ),
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                foregroundColor: theme.colorScheme.onSurface,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+            _dialogActionButton(
+              label: l10n.t('common.cancel'),
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              foregroundColor: theme.colorScheme.onSurface,
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text(
-                'Отмена',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
-              ),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 14.0,
-                  horizontal: 20.0,
-                ),
-                backgroundColor: themeProvider.primaryColor,
-                foregroundColor: themeProvider.onPrimaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+            _dialogActionButton(
+              label: l10n.t('common.choose'),
+              backgroundColor: const Color(0xFF16A34A),
+              foregroundColor: Colors.white,
               onPressed: () {
                 setState(() {
                   _textColor = tempColor;
                   _hasCustomTextColor = true;
                 });
-                _refreshHasChanges();
+                _notifyChanged();
                 Navigator.pop(dialogContext);
               },
-              child: const Text(
-                'Выбрать',
-                style: TextStyle(fontFamily: 'Oswald', fontSize: 18),
-              ),
             ),
           ],
         );
@@ -1065,6 +1106,7 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
     final themeProvider = context.watch<ThemeProvider>();
     final theme = Theme.of(context);
     final primaryColor = themeProvider.primaryColor;
+    final accentColor = theme.colorScheme.primary;
     final onPrimaryColor = themeProvider.onPrimaryColor;
     final effectiveBackgroundColor = _hasCustomBackground
         ? (_backgroundColor ?? theme.scaffoldBackgroundColor)
@@ -1078,8 +1120,8 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
         ? (_textColor ?? defaultTextColor)
         : defaultTextColor;
     final textSelectionTheme = TextSelectionThemeData(
-      selectionColor: primaryColor.withValues(alpha: 0.3),
-      selectionHandleColor: primaryColor,
+      selectionColor: accentColor.withValues(alpha: 0.3),
+      selectionHandleColor: accentColor,
     );
 
     return PopScope(
@@ -1095,6 +1137,8 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
             onPressed: _handleExit,
             icon: const Icon(FluentIcons.edit_arrow_back_24_regular),
           ),
+          centerTitle: true,
+          title: _buildAppBarHeader(context, theme),
           actions: [
             IconButton(
               onPressed: _showOptionsDialog,
@@ -1125,18 +1169,16 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     child: TextField(
                       controller: _titleController,
                       maxLines: null,
-                      cursorColor: primaryColor,
+                      cursorColor: accentColor,
                       style: TextStyle(
                         fontSize: 25,
-                        fontFamily: 'Jura',
                         fontFamilyFallback: const ['Apple'],
                         color: effectiveTextColor,
                       ),
                       decoration: InputDecoration(
                         hint: Text(
-                          'Введи название :>',
+                          context.l10n.t('note.titleHint'),
                           style: TextStyle(
-                            fontFamily: 'Oswald',
                             fontSize: 25,
                             color: effectiveTextColor.withValues(alpha: 0.5),
                           ),
@@ -1172,29 +1214,26 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
                     ),
                   Theme(
                     data: theme.copyWith(
-                      textSelectionTheme: textSelectionTheme,
+                      textSelectionTheme: textSelectionTheme.copyWith(
+                        cursorColor: accentColor,
+                      ),
                     ),
-                    child: TextField(
-                      controller: _contentController,
-                      maxLines: null,
-                      cursorColor: primaryColor,
+                    child: DefaultTextStyle.merge(
                       style: TextStyle(
+                        fontFamily: themeProvider.fontFamily,
                         fontSize: 18,
-                        fontFamily: 'Jura',
                         fontFamilyFallback: const ['Apple'],
                         color: effectiveTextColor,
                       ),
-                      decoration: InputDecoration(
-                        hint: Text(
-                          'Введи заметку ^_^',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontFamily: 'Oswald',
-                            color: effectiveTextColor.withValues(alpha: 0.5),
-                          ),
+                      child: QuillEditor(
+                        controller: _contentController,
+                        focusNode: _editorFocusNode,
+                        scrollController: _editorScrollController,
+                        config: QuillEditorConfig(
+                          placeholder: context.l10n.t('note.contentHint'),
+                          padding: const EdgeInsets.all(18),
+                          scrollable: false,
                         ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.all(18),
                       ),
                     ),
                   ),
@@ -1204,63 +1243,242 @@ class _CreateNoteScreenState extends State<CreateNoteScreen> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => _saveNote(exit: true),
-          backgroundColor: primaryColor,
-          shape: const CircleBorder(),
-          child: Icon(FluentIcons.save_24_regular, color: onPrimaryColor),
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
-        bottomNavigationBar: BottomAppBar(
-          shape: const CircularNotchedRectangle(),
-          color: primaryColor,
-          child: Row(
-            children: <Widget>[
-              IconButton(
-                tooltip: 'Цвет фона',
-                icon: Icon(FluentIcons.color_24_regular, color: onPrimaryColor),
-                onPressed: () => _showBackgroundColorDialog(context),
+        // floatingActionButton: FloatingActionButton(
+        //   onPressed: () => _saveNote(exit: true),
+        //   backgroundColor: primaryColor,
+        //   shape: const CircleBorder(),
+        //   child: Icon(FluentIcons.save_24_regular, color: onPrimaryColor),
+        // ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            NoteFormatToolbar(
+              controller: _contentController,
+              focusNode: _editorFocusNode,
+              primaryColor: accentColor,
+            ),
+            BottomAppBar(
+              color: primaryColor,
+              child: Row(
+                children: <Widget>[
+                  IconButton(
+                    tooltip: context.l10n.t('note.bgColorTooltip'),
+                    icon: Icon(
+                      FluentIcons.color_24_regular,
+                      color: onPrimaryColor,
+                    ),
+                    onPressed: () => _showBackgroundColorDialog(context),
+                  ),
+                  IconButton(
+                    tooltip: context.l10n.t('note.textColorTooltip'),
+                    icon: Icon(
+                      FluentIcons.text_16_regular,
+                      color: onPrimaryColor,
+                    ),
+                    onPressed: () => _showTextColorDialog(context),
+                  ),
+                  IconButton(
+                    tooltip: context.l10n.t('note.bgImageTooltip'),
+                    icon: Icon(
+                      FluentIcons.image_24_regular,
+                      color: onPrimaryColor,
+                    ),
+                    onPressed: () => _pickImage(ImageSource.gallery),
+                  ),
+                  IconButton(
+                    tooltip: context.l10n.t('note.resetBgTooltip'),
+                    icon: Icon(
+                      FluentIcons.arrow_reset_24_regular,
+                      color: onPrimaryColor,
+                    ),
+                    onPressed: () => _showRestoreDialog(context),
+                  ),
+                  IconButton(
+                    tooltip: _isRecording
+                        ? context.l10n.t('note.stopRecording')
+                        : context.l10n.t('note.recordAudio'),
+                    icon: Icon(
+                      _isRecording
+                          ? FluentIcons.stop_24_regular
+                          : FluentIcons.mic_24_regular,
+                      color: _isRecording ? Colors.red : onPrimaryColor,
+                    ),
+                    onPressed: _toggleRecording,
+                  ),
+                  IconButton(
+                    tooltip: context.l10n.t('note.addFilesTooltip'),
+                    icon: Icon(
+                      FluentIcons.attach_24_regular,
+                      color: onPrimaryColor,
+                    ),
+                    onPressed: _pickAttachments,
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: 'Цвет текста',
-                icon: Icon(FluentIcons.text_16_regular, color: onPrimaryColor),
-                onPressed: () => _showTextColorDialog(context),
-              ),
-              IconButton(
-                tooltip: 'Фоновое изображение',
-                icon: Icon(FluentIcons.image_24_regular, color: onPrimaryColor),
-                onPressed: () => _pickImage(ImageSource.gallery),
-              ),
-              IconButton(
-                tooltip: 'Сбросить фон',
-                icon: Icon(
-                  FluentIcons.arrow_reset_24_regular,
-                  color: onPrimaryColor,
-                ),
-                onPressed: () => _showRestoreDialog(context),
-              ),
-              IconButton(
-                tooltip: _isRecording ? 'Остановить запись' : 'Записать аудио',
-                icon: Icon(
-                  _isRecording
-                      ? FluentIcons.stop_24_regular
-                      : FluentIcons.mic_24_regular,
-                  color: _isRecording ? Colors.red : onPrimaryColor,
-                ),
-                onPressed: _toggleRecording,
-              ),
-              IconButton(
-                tooltip: 'Добавить файлы',
-                icon: Icon(
-                  FluentIcons.attach_24_regular,
-                  color: onPrimaryColor,
-                ),
-                onPressed: _pickAttachments,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Widget _buildAppBarHeader(BuildContext context, ThemeData theme) {
+    final l10n = context.l10n;
+    final secondaryColor = theme.colorScheme.onSurfaceVariant;
+    final themeProvider = context.watch<ThemeProvider>();
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _buildStatusWidget(context, theme, l10n, themeProvider.fontFamily),
+          const SizedBox(height: 2),
+          Text(
+            l10n.t('note.createdAt', {
+              'date': formatNoteDateTime(context, _createdAt),
+            }),
+            style: TextStyle(
+              fontFamily: themeProvider.fontFamily,
+              fontSize: 11,
+              color: secondaryColor,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusWidget(
+    BuildContext context,
+    ThemeData theme,
+    AppLocalizations l10n,
+    String fontFamily,
+  ) {
+    switch (_saveStatus) {
+      case AutoSaveStatus.saving:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              l10n.t('note.statusSaving'),
+              style: TextStyle(
+                fontFamily: fontFamily,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        );
+      case AutoSaveStatus.saved:
+        final timeStr = _lastSavedTime != null
+            ? formatNoteTime(context, _lastSavedTime!)
+            : '';
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              FluentIcons.checkmark_12_regular,
+              size: 13,
+              color: Colors.green,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              l10n.t('note.statusSavedAt', {'time': timeStr}),
+              style: TextStyle(
+                fontFamily: fontFamily,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        );
+      case AutoSaveStatus.unsaved:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: Colors.amber,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              l10n.t('note.statusUnsaved'),
+              style: TextStyle(
+                fontFamily: fontFamily,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ],
+        );
+      case AutoSaveStatus.error:
+        return InkWell(
+          onTap: () => _saveNote(exit: false),
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  FluentIcons.warning_16_regular,
+                  size: 14,
+                  color: Colors.red,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  l10n.t('note.statusError'),
+                  style: TextStyle(
+                    fontFamily: fontFamily,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.red,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: l10n.t('note.retrySave'),
+                  child: const Icon(
+                    FluentIcons.arrow_clockwise_12_regular,
+                    size: 12,
+                    color: Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      case AutoSaveStatus.idle:
+        return Text(
+          l10n.t('note.newNote'),
+          style: TextStyle(
+            fontFamily: fontFamily,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        );
+    }
   }
 }

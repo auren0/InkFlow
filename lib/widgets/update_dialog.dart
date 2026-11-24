@@ -1,5 +1,8 @@
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
-import 'package:note_app/providers/update_provider.dart';
+import 'package:inkflow/l10n/app_localizations.dart';
+import 'package:inkflow/providers/update_provider.dart';
+import 'package:inkflow/widgets/adaptive_dialog_actions.dart';
 
 enum _UpdateAction { download, openRelease, later }
 
@@ -13,66 +16,68 @@ Future<void> showUpdateAvailableDialog({
   if (update == null) return;
 
   final notes = update.releaseNotes;
+  final l10n = context.l10n;
   final action = await showDialog<_UpdateAction>(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
+        scrollable: true,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Text(
-          'Доступна версия ${update.version}',
-          style: const TextStyle(fontFamily: 'Oswald'),
+          l10n.t('update.availableTitle', {'version': update.version}),
+          style: const TextStyle(),
         ),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 360),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Установлена версия ${updateProvider.currentVersion}',
-                  style: const TextStyle(fontFamily: 'Oswald'),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Вы можете скачать новую версию с GitHub Releases '
-                  'и установить её поверх текущей.',
-                  style: TextStyle(fontFamily: 'Oswald'),
-                ),
-                if (notes.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Что нового:',
-                    style: TextStyle(
-                      fontFamily: 'Oswald',
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(notes, style: const TextStyle(fontFamily: 'Oswald')),
-                ],
-              ],
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.t('update.installed', {
+                'version': updateProvider.currentVersion,
+              }),
+              style: const TextStyle(),
             ),
-          ),
+            const SizedBox(height: 10),
+            Text(l10n.t('update.description'), style: TextStyle()),
+            if (notes.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Text(
+                l10n.t('update.whatsNew'),
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(notes, style: const TextStyle()),
+            ],
+          ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, _UpdateAction.later),
-            child: const Text('Позже', style: TextStyle(fontFamily: 'Oswald')),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, _UpdateAction.openRelease),
-            child: const Text(
-              'Открыть на GitHub',
-              style: TextStyle(fontFamily: 'Oswald'),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, _UpdateAction.download),
-            child: const Text(
-              'Скачать обновление',
-              style: TextStyle(fontFamily: 'Oswald'),
+          SizedBox(
+            width: double.infinity,
+            child: AdaptiveDialogActions(
+              actions: [
+                AdaptiveDialogAction(
+                  label: l10n.t('common.later'),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, _UpdateAction.later),
+                ),
+                AdaptiveDialogAction(
+                  label: l10n.t('update.openGithub'),
+                  icon: FluentIcons.open_24_regular,
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, _UpdateAction.openRelease),
+                ),
+                AdaptiveDialogAction(
+                  label: update.downloadUrl.isNotEmpty
+                      ? l10n.t('update.download')
+                      : l10n.t('update.openGithub'),
+                  icon: update.downloadUrl.isNotEmpty
+                      ? FluentIcons.arrow_download_24_regular
+                      : FluentIcons.open_24_regular,
+                  isPrimary: true,
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, _UpdateAction.download),
+                ),
+              ],
             ),
           ),
         ],
@@ -96,8 +101,8 @@ Future<void> showUpdateAvailableDialog({
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Не удалось открыть ссылку: $e',
-            style: const TextStyle(fontFamily: 'Oswald'),
+            l10n.t('update.openFailed', {'error': e}),
+            style: const TextStyle(),
           ),
         ),
       );

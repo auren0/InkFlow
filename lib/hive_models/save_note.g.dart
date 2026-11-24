@@ -28,13 +28,15 @@ class SaveNoteAdapter extends TypeAdapter<SaveNote> {
       attachments: (fields[8] as List?)?.cast<String>(),
       hasCustomBackground: fields[9] as bool?,
       hasCustomTextColor: fields[10] as bool?,
+      createdAt: fields[11] as DateTime?,
+      updatedAt: fields[12] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SaveNote obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.title)
       ..writeByte(1)
@@ -56,7 +58,11 @@ class SaveNoteAdapter extends TypeAdapter<SaveNote> {
       ..writeByte(9)
       ..write(obj.hasCustomBackground)
       ..writeByte(10)
-      ..write(obj.hasCustomTextColor);
+      ..write(obj.hasCustomTextColor)
+      ..writeByte(11)
+      ..write(obj.createdAt)
+      ..writeByte(12)
+      ..write(obj.updatedAt);
   }
 
   @override

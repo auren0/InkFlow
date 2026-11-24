@@ -2,12 +2,12 @@
 ; Build: powershell -ExecutionPolicy Bypass -File scripts\build_installer.ps1
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0"
+  #define MyAppVersion "1.4.1"
 #endif
 
 #define MyAppName "InkFlow"
 #define MyAppPublisher "auren0"
-#define MyAppExeName "note_app.exe"
+#define MyAppExeName "InkFlow.exe"
 #define MyAppUrl "https://github.com/auren0/InkFlow"
 
 [Setup]
